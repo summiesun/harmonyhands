@@ -149,7 +149,7 @@
     border: 1px solid transparent; font-size: 13px; color: var(--text-dim); flex-wrap: nowrap;
   }
   .part-row .swatch{ width: 10px; height: 10px; border-radius: 50%; flex-shrink:0; }
-  .part-row .voice-label{ min-width: 78px; flex-shrink:0; }
+  .part-row .voice-label{ min-width: 118px; flex-shrink:0; }
   .part-row input[type="range"]{ flex: 1; min-width: 0; }
   .part-row .tag{ font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; min-width: 42px; text-align:right; }
   .part-row.harmonizing{ border-color: var(--gold); background: rgba(232,179,78,0.08); color: var(--text); }
@@ -187,7 +187,7 @@
   <header>
     <div>
       <h1>HarmonyHands</h1>
-      <p>Open your hand and your own voice grows a live backing-vocal stack underneath it. Close it (or drop it out of frame) and you hear just your natural voice. Each harmony voice is a fixed interval above or below whatever you're singing — drag its slider to set how far, so it always lands where you want instead of guessing at your key.</p>
+      <p>Each of your four fingers controls one harmony voice on its own — raise a finger to bring that voice in, lower it to drop it back out, in any combination. Your thumb is free. Each voice is a fixed interval above or below whatever you're singing — drag its slider to set how far.</p>
     </div>
     <div class="badges">
       <span class="badge">prototype</span>
@@ -233,7 +233,7 @@
     <div>
       <div class="panel">
         <h2>Harmonies</h2>
-        <div class="hint" style="margin-bottom:12px;">Each slider is semitones above (+) or below (−) your own voice, applied instantly — no key or note detection involved.</div>
+        <div class="hint" style="margin-bottom:12px;">Index → A · Middle → B · Ring → C · Pinky → D. Raise a finger to bring that voice in. Each slider is semitones above (+) or below (−) your own voice, applied instantly.</div>
         <div class="parts-legend" id="partsLegend"></div>
         <div class="toggle-row">
           <label for="choirPolish">Choir polish (chorus + reverb)<span class="sub">Softens the shifted voices but adds CPU load. Off = lighter and less likely to stutter. Applies next time you hit Start.</span></label>
@@ -279,11 +279,13 @@
 
   <footer>
     Hand detection uses MediaPipe Hands and voice harmonization uses Tone.js's real-time pitch shifter — both run
-    entirely in your browser; no audio or video leaves your device. Gesture logic: an open hand (≥3 fingers
-    extended) brings in 4 backing-harmony voices; a closed fist, an ambiguous pose, or no hand in frame plays just
-    your natural voice. Each harmony voice sits at a fixed semitone offset from your live voice, set by its own
-    slider — drag one down while you sing to hear it move in real time, and use "Test the 4 harmony voices" to
-    preview the current settings on a held tone. If audio still stutters even in dry mode (hand closed, no
+    entirely in your browser; no audio or video leaves your device. Gesture logic: your index, middle, ring, and
+    pinky fingers each independently control one harmony voice (Harmony A/B/C/D respectively, matching the colors
+    in the panel) — raise any combination of them to bring in exactly those voices; lower a finger and its voice
+    drops back out. Your thumb isn't used. Each harmony voice sits at a fixed semitone offset from your live voice,
+    set by its own slider — drag one down while you sing to hear it move in real time, and use "Test the 4 harmony
+    voices" to preview the current settings on a held tone regardless of your hand. If audio still stutters even
+    with every finger down (no
     harmonies), that's almost always outside the app itself — most commonly a Bluetooth headset (AirPods and
     similar) dropping to its low-bandwidth call-quality mode the moment it's also supplying the microphone, or the
     browser tab running low on CPU. Wired headphones/mic, or a wired USB mic, sidestep the Bluetooth issue entirely.
@@ -316,6 +318,17 @@
   // sounds like several different singers rather than the same throat cloned
   // four times — real ensembles never sit at a perfectly identical pitch.
   const HARMONY_DETUNE_CENTS = [-4, 2, -2, 5];
+  // Index/middle/ring/pinky, index-aligned with the 4 harmony voices — each
+  // finger independently gates its own voice's gain in/out (see hand-tracking
+  // section below). Thumb isn't tracked.
+  const FINGER_NAMES = ["Index", "Middle", "Ring", "Pinky"];
+  const FINGER_DEFS = [
+    { pip: 6, tip: 8 },
+    { pip: 10, tip: 12 },
+    { pip: 14, tip: 16 },
+    { pip: 18, tip: 20 },
+  ];
+  const VOICE_ON_GAIN = 0.55;
 
   let voiceOffsets = HARMONY_DEFAULTS.slice();
 
@@ -361,7 +374,6 @@
     while (logEl.children.length > 40) logEl.removeChild(logEl.firstChild);
   }
 
-  let harmonizingActive = false;
   const legendRows = [];
   const legendVals = [];
   function buildLegend(){
@@ -373,7 +385,7 @@
       row.className = "part-row";
       const val = voiceOffsets[i];
       row.innerHTML = `<span class="swatch" style="background:${HARMONY_COLORS[i]}"></span>` +
-        `<span class="voice-label">${label}</span>` +
+        `<span class="voice-label">${label} · ${FINGER_NAMES[i]}</span>` +
         `<input type="range" min="-12" max="12" step="1" value="${val}" data-i="${i}">` +
         `<span class="tag">${val > 0 ? "+" : ""}${val} st</span>`;
       partsLegend.appendChild(row);
@@ -391,8 +403,21 @@
   }
   buildLegend();
 
-  function renderLegendState(){
-    legendRows.forEach((row) => row.classList.toggle("harmonizing", harmonizingActive));
+  // Turns one voice's row highlight + actual audio gain on/off — called only
+  // from the per-finger gesture logic below, so each voice is independent of
+  // the others rather than all 4 toggling together off a single hand state.
+  function setVoiceActive(i, active){
+    if (harmonyGains[i]) harmonyGains[i].gain.setTargetAtTime(active ? VOICE_ON_GAIN : 0, audioCtx.currentTime, 0.08);
+    if (legendRows[i]) legendRows[i].classList.toggle("harmonizing", active);
+    updateModeChip();
+    log(`${FINGER_NAMES[i]} ${active ? "up" : "down"} → ${HARMONY_LABELS[i]} ${active ? "in" : "out"}.`);
+  }
+
+  function updateModeChip(){
+    const activeLabels = fingerConfirmed.map((v, i) => v ? HARMONY_LABELS[i].replace("Harmony ", "") : null).filter(Boolean);
+    const any = activeLabels.length > 0;
+    modeChip.dataset.mode = any ? "harmony" : "dry";
+    modeLabel.textContent = any ? activeLabels.join(" + ") : "Dry — your voice only";
   }
 
   // ---------- Audio engine ----------
@@ -403,7 +428,6 @@
   let pitchShifters = []; // one per harmony voice, index-aligned with voiceOffsets
   let harmonyGains = [];
   let harmonyFilters = []; // { lp, hp } per voice
-  let currentMode = "dry"; // "dry" | "harmony"
   let clickOn = false;
   let clickTimer = null;
   let micStream = null, micSource = null, analyser = null, pitchRAF = null;
@@ -435,7 +459,9 @@
     dryGain.connect(masterGain);
 
     harmonyBed = audioCtx.createGain(); // sum of the 4 harmony voices
-    harmonyBed.gain.value = 0; // starts silent until an open hand is confirmed
+    harmonyBed.gain.value = 1; // always-on summing bus now — each voice's own
+                               // gain node (below) gates it in/out per finger,
+                               // so this bed itself never needs to be toggled.
 
     choirPolishActive = !!(choirPolish && choirPolish.checked);
     if (choirPolishActive){
@@ -490,11 +516,12 @@
         shifter.chain(lp, hp); // Tone node -> Tone node: fine to call directly
 
         const g = audioCtx.createGain();
-        // Slightly under the lead's volume: four harmony voices summed at full
-        // gain each read louder and more "walled" than the lead you're
-        // actually singing — sitting them a little under it is a normal
-        // backing-vocal mixing move.
-        g.gain.value = 0.55;
+        // Starts silent — this is the per-voice gate a raised finger opens.
+        // VOICE_ON_GAIN (0.55) is deliberately under the lead's volume: four
+        // harmony voices summed at full gain each read louder and more
+        // "walled" than the lead you're actually singing — sitting them a
+        // little under it is a normal backing-vocal mixing move.
+        g.gain.value = 0;
         hp.connect(g); // Tone node -> native node: fine to call directly
         g.connect(harmonyBed);
         pitchShifters.push(shifter);
@@ -507,20 +534,21 @@
         harmonyFilters.push(null);
       }
     }
-    renderLegendState();
   }
 
   // Plays a short reference tone through each of the 4 harmony voices in turn,
   // at whatever their sliders are currently set to, seeded from the last pitch
   // you sang (or C4 if you haven't sung yet) — so you can hear/tune the voices
-  // independent of singing or gestures.
+  // independent of singing or which fingers happen to be up.
   testBtn.addEventListener("click", () => {
     if (!audioCtx) return;
     const testVoices = pitchShifters.map((s, i) => ({ s, i })).filter(v => v.s);
     if (testVoices.length === 0){ log("No harmony voices available to test."); return; }
-    const wasMode = currentMode;
     const refMidi = lastMidi;
-    harmonyBed.gain.setTargetAtTime(1, audioCtx.currentTime, 0.01);
+    // Temporarily open every voice's gate so you can hear all 4 regardless of
+    // which fingers are actually raised right now, then restore whatever your
+    // hand was really doing once the test finishes.
+    harmonyGains.forEach(g => { if (g) g.gain.setTargetAtTime(VOICE_ON_GAIN, audioCtx.currentTime, 0.01); });
     log(`Testing harmony voices around ${midiName(refMidi)}…`);
     testVoices.forEach(({ s, i }, idx) => {
       setTimeout(() => {
@@ -538,26 +566,15 @@
         osc.stop(now + 0.6);
         log(`${HARMONY_LABELS[i]}: ${s.pitch > 0 ? "+" : ""}${s.pitch.toFixed(1)} semitones`);
         if (idx === testVoices.length - 1){
-          setTimeout(() => { harmonyBed.gain.setTargetAtTime(wasMode === "harmony" ? 1 : 0, audioCtx.currentTime, 0.05); }, 700);
+          setTimeout(() => {
+            harmonyGains.forEach((gn, vi) => {
+              if (gn) gn.gain.setTargetAtTime(fingerConfirmed[vi] ? VOICE_ON_GAIN : 0, audioCtx.currentTime, 0.05);
+            });
+          }, 700);
         }
       }, idx * 700);
     });
   });
-
-  function applyMode(mode){
-    if (!audioCtx || mode === currentMode) return;
-    currentMode = mode;
-    harmonizingActive = (mode === "harmony");
-    const now = audioCtx.currentTime;
-    // A slightly longer ramp (was 0.05s) so that if the hand-gesture read ever
-    // flickers, the harmony fades rather than snaps in/out — a snap read as
-    // "choppy" even when everything upstream of it was working correctly.
-    harmonyBed.gain.setTargetAtTime(mode === "harmony" ? 1 : 0, now, 0.1);
-    modeChip.dataset.mode = mode;
-    modeLabel.textContent = mode === "harmony" ? "Harmony — 4 voices" : "Dry — your voice only";
-    log(mode === "harmony" ? "Open hand → harmony in." : "Hand closed → dry voice only.");
-    renderLegendState();
-  }
 
   volume.addEventListener("input", () => {
     volumeVal.textContent = volume.value + "%";
@@ -660,67 +677,71 @@
   }
 
   // ---------- Hand tracking / gesture logic ----------
+  // Each of the 4 tracked fingers is debounced independently (its own
+  // hold-timer) so a single flickery frame from the detector can't snap a
+  // voice in/out — same idea as the old whole-hand debounce, just applied per
+  // finger instead of to one combined open/fist read.
   let hands, camera;
   let showSkeleton = true;
-  let confirmedMode = "dry";
-  let candidateMode = null;
-  let candidateSince2 = 0;
-  const HOLD_MS = 260;
+  let fingerConfirmed = [false, false, false, false];
+  let fingerCandidate = [null, null, null, null];
+  let fingerCandidateSince = [0, 0, 0, 0];
+  const FINGER_HOLD_MS = 180;
+  const FINGER_EXTEND_RATIO = 1.08;
   let frameCounter = 0;
 
   function dist(a, b){ return Math.hypot(a.x - b.x, a.y - b.y); }
 
-  function classifyHand(landmarks){
+  function getExtendedFingers(landmarks){
     const wrist = landmarks[0];
-    const fingers = [
-      { pip: landmarks[6], tip: landmarks[8] },
-      { pip: landmarks[10], tip: landmarks[12] },
-      { pip: landmarks[14], tip: landmarks[16] },
-      { pip: landmarks[18], tip: landmarks[20] },
-    ];
-    let extended = 0;
-    fingers.forEach(f => {
-      if (dist(wrist, f.tip) > dist(wrist, f.pip) * 1.08) extended++;
-    });
-    if (extended >= 3) return "open";
-    if (extended <= 1) return "fist";
-    return "ambiguous";
+    return FINGER_DEFS.map(f => dist(wrist, landmarks[f.tip]) > dist(wrist, landmarks[f.pip]) * FINGER_EXTEND_RATIO);
   }
 
   function onResults(results){
     ctx2d.save();
     ctx2d.clearRect(0, 0, overlay.width, overlay.height);
 
-    let state = "none"; // "open" | "fist" | "ambiguous" | "none"
+    let extended = [false, false, false, false];
+    let handPresent = false;
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0){
+      handPresent = true;
       const lm = results.multiHandLandmarks[0]; // single-hand control: primary/first detected hand
-      state = classifyHand(lm);
+      extended = getExtendedFingers(lm);
       if (showSkeleton && window.drawConnectors){
-        window.drawConnectors(ctx2d, lm, window.HAND_CONNECTIONS, { color: state === "open" ? "#e8b34e" : (state === "fist" ? "#5fd8c4" : "#666"), lineWidth: 2 });
+        const anyExtended = extended.some(Boolean);
+        window.drawConnectors(ctx2d, lm, window.HAND_CONNECTIONS, { color: anyExtended ? "#e8b34e" : "#666", lineWidth: 2 });
         window.drawLandmarks(ctx2d, lm, { color: "#fff", lineWidth: 1, radius: 2 });
+        // Dot each fingertip in its harmony voice's color, lit up when raised
+        // — a direct visual key for which finger drives which voice.
+        FINGER_DEFS.forEach((f, i) => {
+          const tip = lm[f.tip];
+          const x = tip.x * overlay.width, y = tip.y * overlay.height;
+          ctx2d.beginPath();
+          ctx2d.arc(x, y, extended[i] ? 7 : 4, 0, Math.PI * 2);
+          ctx2d.fillStyle = extended[i] ? HARMONY_COLORS[i] : "rgba(255,255,255,0.3)";
+          ctx2d.fill();
+        });
       }
     }
     ctx2d.restore();
 
-    // open -> harmony candidate; fist/none -> dry candidate; ambiguous -> hold last (no candidate)
-    let overall = null;
-    if (state === "open") overall = "harmony";
-    else if (state === "fist" || state === "none") overall = "dry";
-
     const now = performance.now();
-    if (overall && overall !== confirmedMode){
-      if (overall === candidateMode){
-        if (now - candidateSince2 >= HOLD_MS){
-          confirmedMode = overall;
-          candidateMode = null;
-          applyMode(confirmedMode);
+    for (let i = 0; i < 4; i++){
+      const cur = handPresent ? extended[i] : false;
+      if (cur !== fingerConfirmed[i]){
+        if (cur === fingerCandidate[i]){
+          if (now - fingerCandidateSince[i] >= FINGER_HOLD_MS){
+            fingerConfirmed[i] = cur;
+            fingerCandidate[i] = null;
+            setVoiceActive(i, cur);
+          }
+        } else {
+          fingerCandidate[i] = cur;
+          fingerCandidateSince[i] = now;
         }
       } else {
-        candidateMode = overall;
-        candidateSince2 = now;
+        fingerCandidate[i] = null;
       }
-    } else {
-      candidateMode = null;
     }
   }
 
@@ -795,19 +816,19 @@
       analyser.fftSize = 2048;
       micSource.connect(analyser); // analysis only — this tap doesn't feed the output
 
-      confirmedMode = "dry";
-      currentMode = "dry";
-      harmonizingActive = false;
+      fingerConfirmed = [false, false, false, false];
+      fingerCandidate = [null, null, null, null];
+      fingerCandidateSince = [0, 0, 0, 0];
+      legendRows.forEach(row => row.classList.remove("harmonizing"));
       modeChip.dataset.mode = "dry";
       modeLabel.textContent = "Dry — your voice only";
-      renderLegendState();
       startPitchLoop();
       scheduleClick();
 
       stopBtn.disabled = false;
       toggleSkeleton.disabled = false;
       testBtn.disabled = false;
-      log(`Session started (choir polish ${choirPolishActive ? "on" : "off"}). Open your hand for harmony; close it for just your voice.`);
+      log(`Session started (choir polish ${choirPolishActive ? "on" : "off"}). Raise a finger to bring in its harmony voice.`);
     } catch (err){
       const msg = err && err.message ? err.message : String(err);
       log("Error: " + msg);
@@ -840,8 +861,8 @@
     noteReadout.textContent = "—";
     centsReadout.textContent = "";
     pitchNeedle.style.left = "50%";
-    harmonizingActive = false;
-    renderLegendState();
+    fingerConfirmed = [false, false, false, false];
+    legendRows.forEach(row => row.classList.remove("harmonizing"));
     startBtn.disabled = false;
     stopBtn.disabled = true;
     toggleSkeleton.disabled = true;
