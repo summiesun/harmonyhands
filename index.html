@@ -398,10 +398,12 @@
       try {
         const shifter = new Tone.PitchShift(shiftFor(i));
         shifter.windowSize = 0.1;
-        // IMPORTANT: connect a native node into a Tone node via its .input,
-        // not the Tone object itself — the raw AudioNode.connect() call
-        // silently fails to route audio if given a non-native object.
-        micSource.connect(shifter.input);
+        // IMPORTANT: a native AudioNode's own .connect() only accepts a native
+        // AudioNode/AudioParam — passing shifter.input directly throws
+        // "Overload resolution failed" because it's a Tone.js-wrapped object,
+        // not a raw AudioNode. Tone.connect() is the documented bridge for
+        // wiring native Web Audio nodes into/out of Tone.js nodes.
+        Tone.connect(micSource, shifter);
         const g = audioCtx.createGain();
         g.gain.value = (i === selectedPart) ? 0 : 1; // don't double your own part
         shifter.connect(g); // Tone node -> native node: fine to call directly
@@ -447,7 +449,7 @@
         osc.frequency.value = 220; // A3 reference pitch
         g.gain.value = 0;
         osc.connect(g);
-        g.connect(pitchShifters[i].input);
+        Tone.connect(g, pitchShifters[i]);
         g.gain.setTargetAtTime(0.6, now, 0.01);
         g.gain.setTargetAtTime(0, now + 0.35, 0.05);
         osc.start(now);
