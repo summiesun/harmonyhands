@@ -66,7 +66,7 @@
     font-family: var(--font-display); font-weight: 600; font-size: clamp(28px, 4vw, 40px);
     margin: 0; letter-spacing: -0.01em;
   }
-  header p{ margin: 4px 0 0; color: var(--text-dim); font-size: 15px; max-width: 52ch; }
+  header p{ margin: 4px 0 0; color: var(--text-dim); font-size: 15px; max-width: 54ch; }
 
   .badges{ display:flex; flex-direction: column; align-items: flex-end; gap: 6px; }
   .badge{
@@ -134,25 +134,25 @@
   .field{ margin-bottom: 16px; }
   .field:last-child{ margin-bottom: 0; }
   label{ display:block; font-size: 12.5px; color: var(--text-dim); margin-bottom: 6px; font-weight: 500; }
-  select, input[type="range"]{ width: 100%; }
-  select{
-    font-family: var(--font-body); font-size: 14px; padding: 9px 10px; border-radius: 8px;
-    border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
-  }
+  input[type="range"]{ width: 100%; }
   .row{ display:flex; align-items:center; gap: 10px; }
   .row .val{ font-variant-numeric: tabular-nums; font-size: 13px; color: var(--text-dim); min-width: 46px; text-align:right; }
-  .two-col{ display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .key-readout{
+    font-size: 13px; color: var(--text-dim); background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 10px; margin-top: 12px;
+  }
+  .key-readout strong{ color: var(--text); font-weight: 600; }
 
   .parts-legend{ display:flex; flex-direction:column; gap: 6px; margin-top: 4px; }
   .part-row{
     display:flex; align-items:center; gap: 10px; padding: 7px 10px; border-radius: 8px;
     border: 1px solid transparent; font-size: 13.5px; color: var(--text-dim);
   }
-  .part-row .swatch{ width: 10px; height: 10px; border-radius: 50%; background: var(--line); flex-shrink:0; }
-  .part-row.you{ border-color: var(--gold); background: rgba(232,179,78,0.08); color: var(--text); font-weight: 600; }
-  .part-row.you .swatch{ background: var(--gold); }
-  .part-row .tag{ margin-left: auto; font-size: 11px; color: var(--text-dim); }
-  .part-row.harmonizing .swatch{ background: var(--teal); box-shadow: 0 0 8px var(--teal); }
+  .part-row .swatch{ width: 10px; height: 10px; border-radius: 50%; flex-shrink:0; }
+  .part-row .tag{ margin-left: auto; font-size: 11.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+  .part-row.harmonizing{ border-color: var(--gold); background: rgba(232,179,78,0.08); color: var(--text); }
+  .part-row.harmonizing .tag{ color: var(--gold); }
 
   .pitch-meter{
     height: 54px; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--line);
@@ -182,7 +182,7 @@
   <header>
     <div>
       <h1>HarmonyHands</h1>
-      <p>Open your hand and your own voice splits into a live five-part harmony. Close it (or drop it out of frame) and you hear just your natural voice. A working proof of concept — the gesture control, pitch tracking, and harmonization are real, running entirely on your live singing, not a backing track.</p>
+      <p>Open your hand and your own voice grows a live backing-vocal stack underneath it. Close it (or drop it out of frame) and you hear just your natural voice. There's nothing to set up first — no key, no part, no notes to pick. It listens to what you're singing, figures out the key on its own, and follows you.</p>
     </div>
     <div class="badges">
       <span class="badge">prototype</span>
@@ -221,22 +221,13 @@
           <div class="pitch-needle" id="pitchNeedle"></div>
         </div>
         <div class="pitch-labels"><span>flat</span><span>on pitch</span><span>sharp</span></div>
+        <div class="key-readout" id="keyReadout">Key: still listening — sing a few notes and it'll figure itself out.</div>
       </div>
     </div>
 
     <div>
       <div class="panel">
-        <h2>Your voice</h2>
-        <div class="field">
-          <label for="partSelect">Which part is your voice</label>
-          <select id="partSelect">
-            <option value="0">Soprano (top)</option>
-            <option value="1">Alto</option>
-            <option value="2" selected>Tenor</option>
-            <option value="3">Baritone</option>
-            <option value="4">Bass (bottom)</option>
-          </select>
-        </div>
+        <h2>Harmonies</h2>
         <div class="parts-legend" id="partsLegend"></div>
         <div class="field" style="margin-top:14px;">
           <button id="testBtn" disabled style="width:100%;">Test the 4 harmony voices</button>
@@ -279,10 +270,13 @@
   <footer>
     Hand detection uses MediaPipe Hands and voice harmonization uses Tone.js's real-time pitch shifter — both run
     entirely in your browser; no audio or video leaves your device. Gesture logic: an open hand (≥3 fingers
-    extended) splits your live voice into the full five-part harmony; a closed fist, an ambiguous pose, or no hand
-    in frame plays just your natural voice. The four harmony voices are fixed intervals above/below whatever note
-    you're singing (stacked thirds and fifths outlining a major chord on your note) — no key to set, it always
-    tracks your live pitch directly. Use "Test the 4 harmony voices" after starting to hear each one on its own.
+    extended) brings in 4 backing-harmony voices; a closed fist, an ambiguous pose, or no hand in frame plays just
+    your natural voice. There's no key or part to set — a running pitch listener passively figures out the most
+    likely key you're singing in (the same way a backing singer picks it up by ear after a few bars), and each
+    harmony voice tracks a fixed scale-step away from whatever note you're on (a 3rd up, a 5th up, a 3rd down, a
+    6th down), snapped to that key. The lead voice itself gets a light, partial nudge toward the nearest in-key
+    pitch — a touch of pitch correction, blended under the untouched dry signal rather than fully quantizing it.
+    Use "Test the 4 harmony voices" after starting to hear the current harmony shape on its own.
   </footer>
 
 </div>
@@ -296,23 +290,44 @@
   "use strict";
 
   // ---------- Music theory ----------
-  // No key to set: each harmony voice is a FIXED interval above/below whatever note
-  // you're singing, so it always tracks your live pitch directly. The five values are
-  // a close major-triad voicing (3rd/5th an octave down, root, 3rd, 5th) spanning
-  // 15 semitones total rather than a full 19 — kept deliberately inside about an
-  // octave-and-a-fourth so no voice needs a full-octave shift off the lead. A
-  // non-formant-corrected pitch shifter (what Tone.PitchShift is) gets noticeably
-  // more "monster"/robotic the further it moves from the source pitch — a full
-  // octave down is exactly what produces that demonic-growl artifact — so keeping
-  // every part within roughly a 6th–8th of whichever voice you pick is what keeps
-  // this sounding like a choir instead of a vocoder.
-  const PART_NAMES = ["Soprano", "Alto", "Tenor", "Baritone", "Bass"];
-  const PART_COLORS = ["#e8b34e", "#5fd8c4", "#e37b6b", "#9b8cf2", "#7fd0e8"];
-  const PART_SEMITONES = [7, 4, 0, -5, -8]; // Soprano..Bass
-  // A few cents of fixed detune per voice (not whole semitones) so the harmony
-  // stack sounds like several different singers rather than the same throat
-  // cloned four times — real ensembles never sit at a perfectly identical pitch.
-  const PART_DETUNE_CENTS = [-4, 2, 0, -2, 5]; // Soprano..Bass, in cents
+  // No key or part to set: every harmony voice is defined as a fixed number of
+  // *scale steps* away from whatever note you're currently singing (a 3rd up, a
+  // 5th up, a 3rd down, a 6th down — a normal pop backing-vocal stack), and a
+  // passive key-tracker (below) supplies which scale that means at any given
+  // moment. That's what makes these land as chord tones instead of occasionally
+  // clashing the way a fixed chromatic distance would the moment you move off
+  // the note you started on.
+  const HARMONY_STEPS = [2, 4, -2, -5];          // 3rd up, 5th up, 3rd down, 6th down
+  const HARMONY_LABELS = ["3rd up", "5th up", "3rd down", "6th down"];
+  const HARMONY_COLORS = ["#e8b34e", "#5fd8c4", "#9b8cf2", "#7fd0e8"];
+  // A few cents of fixed detune per voice (not whole semitones) so the stack
+  // sounds like several different singers rather than the same throat cloned
+  // four times — real ensembles never sit at a perfectly identical pitch.
+  const HARMONY_DETUNE_CENTS = [-4, 2, -2, 5];
+  // How much of the way to nudge the LEAD voice toward the nearest in-key pitch
+  // — this is the "slightest touch of autotune": partial correction, blended
+  // under the fully untouched dry signal (see buildAudioGraph), never full
+  // quantization the way a hard-tuned vocal would be.
+  const LEAD_CORRECTION_STRENGTH = 0.4;
+
+  const MAJOR_SCALE = [0, 2, 4, 5, 7, 9, 11];
+  const MINOR_SCALE = [0, 2, 3, 5, 7, 8, 10]; // natural minor
+  const NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+  // Krumhansl–Kessler key profiles: how strongly each of the 12 pitch classes
+  // "belongs" to a major or minor key built on a given tonic. Correlating a
+  // rolling histogram of what you've actually been singing against all 24
+  // rotations of these two profiles is a standard, well-tested way to guess
+  // "what key is this" from nothing but the notes themselves.
+  const MAJOR_PROFILE = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
+  const MINOR_PROFILE = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
+
+  function freqToMidi(freq){ return 69 + 12 * Math.log2(freq / 440); }
+  function midiToFreq(midi){ return 440 * Math.pow(2, (midi - 69) / 12); }
+  function pitchClassOf(midi){ return ((Math.round(midi) % 12) + 12) % 12; }
+  function midiName(midi){
+    const n = Math.round(midi);
+    return NOTE_NAMES[((n % 12) + 12) % 12] + (Math.floor(n / 12) - 1);
+  }
 
   function noteName(freq){
     if (!freq || freq <= 0) return { name: "—", cents: 0 };
@@ -326,17 +341,84 @@
     return { name: name + octave, cents };
   }
 
+  // ---------- Passive key tracking ----------
+  let pitchClassWeight = new Array(12).fill(0); // rolling "how much have we heard this pitch class lately"
+  let keyTonic = 0;        // pitch class 0-11 (0 = C)
+  let keyIsMinor = false;
+  let haveKeyEstimate = false;
+
+  function resetKeyTracking(){
+    pitchClassWeight = new Array(12).fill(0);
+    keyTonic = 0;
+    keyIsMinor = false;
+    haveKeyEstimate = false;
+  }
+
+  function addToHistogram(pc, weight){ pitchClassWeight[pc] += weight; }
+  function decayHistogram(){ for (let i = 0; i < 12; i++) pitchClassWeight[i] *= 0.985; }
+
+  function correlate(hist, profile, rotation){
+    let sum = 0;
+    for (let i = 0; i < 12; i++) sum += hist[i] * profile[(i - rotation + 12) % 12];
+    return sum;
+  }
+
+  function reestimateKey(){
+    let best = -Infinity, bestTonic = keyTonic, bestMinor = keyIsMinor;
+    for (let t = 0; t < 12; t++){
+      const majorScore = correlate(pitchClassWeight, MAJOR_PROFILE, t);
+      const minorScore = correlate(pitchClassWeight, MINOR_PROFILE, t);
+      if (majorScore > best){ best = majorScore; bestTonic = t; bestMinor = false; }
+      if (minorScore > best){ best = minorScore; bestTonic = t; bestMinor = true; }
+    }
+    keyTonic = bestTonic;
+    keyIsMinor = bestMinor;
+    haveKeyEstimate = true;
+  }
+
+  // Snap a raw (possibly slightly-off-pitch) MIDI note to the nearest tone of
+  // the current estimated scale. This is also where the harmony voices'
+  // "auto-tune" quantization happens — the harmony always lands exactly on a
+  // scale tone regardless of how precisely you hit it.
+  function snapToScale(midiFloat){
+    const scale = keyIsMinor ? MINOR_SCALE : MAJOR_SCALE;
+    const rounded = Math.round(midiFloat);
+    const pc = ((rounded - keyTonic) % 12 + 12) % 12;
+    let bestDeg = 0, bestDist = Infinity;
+    scale.forEach((deg, i) => {
+      const dist = Math.min(Math.abs(deg - pc), 12 - Math.abs(deg - pc));
+      if (dist < bestDist){ bestDist = dist; bestDeg = i; }
+    });
+    const octave = Math.round((rounded - keyTonic - scale[bestDeg]) / 12);
+    const snappedMidi = keyTonic + octave * 12 + scale[bestDeg];
+    return { snappedMidi, scaleIndex: bestDeg, scaleLen: scale.length };
+  }
+
+  // Move `steps` scale-degrees away from an already-snapped note (can be
+  // negative), rolling over into the next/previous octave as needed — this is
+  // how a harmony voice "follows the melody": always the next scale tone up or
+  // down, never a fixed chromatic distance that can wander off-chord.
+  function scaleStepMidi(snappedMidi, scaleIndex, scaleLen, steps){
+    const scale = keyIsMinor ? MINOR_SCALE : MAJOR_SCALE;
+    const idxRaw = scaleIndex + steps;
+    const octShift = Math.floor(idxRaw / scaleLen);
+    const idx = ((idxRaw % scaleLen) + scaleLen) % scaleLen;
+    const baseOctave = Math.round((snappedMidi - keyTonic - scale[scaleIndex]) / 12);
+    return keyTonic + (baseOctave + octShift) * 12 + scale[idx];
+  }
+
   // ---------- DOM ----------
   const $ = (id) => document.getElementById(id);
   const video = $("video"), overlay = $("overlay"), placeholder = $("placeholder");
   const startBtn = $("startBtn"), stopBtn = $("stopBtn"), toggleSkeleton = $("toggleSkeleton");
   const modeChip = $("modeChip"), modeLabel = $("modeLabel");
-  const partSelect = $("partSelect"), partsLegend = $("partsLegend"), testBtn = $("testBtn");
+  const partsLegend = $("partsLegend"), testBtn = $("testBtn");
   const volume = $("volume"), volumeVal = $("volumeVal");
   const tempo = $("tempo"), tempoVal = $("tempoVal");
   const muteBtn = $("muteBtn"), clickBtn = $("clickBtn");
   const logEl = $("log");
   const noteReadout = $("noteReadout"), centsReadout = $("centsReadout"), pitchNeedle = $("pitchNeedle");
+  const keyReadout = $("keyReadout");
   const ctx2d = overlay.getContext("2d");
 
   function log(msg){
@@ -347,44 +429,50 @@
     while (logEl.children.length > 40) logEl.removeChild(logEl.firstChild);
   }
 
-  let selectedPart = 2;
   let harmonizingActive = false;
-  function renderLegend(){
+  const legendRows = [];
+  function buildLegend(){
     partsLegend.innerHTML = "";
-    PART_NAMES.forEach((name, i) => {
+    legendRows.length = 0;
+    HARMONY_LABELS.forEach((label, i) => {
       const row = document.createElement("div");
-      const isYou = i === selectedPart;
-      row.className = "part-row" + (isYou ? " you" : "") + (!isYou && harmonizingActive ? " harmonizing" : "");
-      row.innerHTML = `<span class="swatch" style="background:${isYou ? PART_COLORS[i] : ''}"></span>${name}<span class="tag">${isYou ? "your voice" : (harmonizingActive ? "harmonizing" : "")}</span>`;
+      row.className = "part-row";
+      row.innerHTML = `<span class="swatch" style="background:${HARMONY_COLORS[i]}"></span>${label}<span class="tag">—</span>`;
       partsLegend.appendChild(row);
+      legendRows.push(row);
     });
   }
-  renderLegend();
+  buildLegend();
+
+  function renderLegendState(){
+    legendRows.forEach((row, i) => {
+      row.classList.toggle("harmonizing", harmonizingActive);
+      const shifter = pitchShifters[i];
+      const tag = row.querySelector(".tag");
+      if (shifter && typeof shifter.pitch === "number"){
+        const st = shifter.pitch;
+        tag.textContent = `${st > 0 ? "+" : ""}${st.toFixed(1)} st`;
+      }
+    });
+    if (keyReadout){
+      keyReadout.innerHTML = haveKeyEstimate
+        ? `Key (auto-detected): <strong>${NOTE_NAMES[keyTonic]} ${keyIsMinor ? "minor" : "major"}</strong>`
+        : `Key: still listening — sing a few notes and it'll figure itself out.`;
+    }
+  }
 
   // ---------- Audio engine ----------
   let audioCtx = null;
-  let masterGain, dryGain, harmonyBed;
+  let masterGain, dryGain, correctedGain, harmonyBed;
   let harmonyChorus = null, harmonyReverb = null; // shared "choir room" bus, see buildAudioGraph
-  let pitchShifters = []; // one per part, index-aligned with PART_NAMES
-  let partGains = [];
-  let partFilters = []; // { lp, hp } per part, index-aligned with PART_NAMES
+  let leadCorrection = null; // the "touch of autotune" on the lead itself
+  let pitchShifters = []; // one per harmony voice, index-aligned with HARMONY_STEPS
+  let harmonyGains = [];
+  let harmonyFilters = []; // { lp, hp } per voice
   let currentMode = "dry"; // "dry" | "harmony"
   let clickOn = false;
   let clickTimer = null;
   let micStream = null, micSource = null, analyser = null, pitchRAF = null;
-
-  // The constant semitone shift for harmony voice `i`, relative to whichever part
-  // you've selected as "your voice" (that part's own shift is always 0 — it's dry),
-  // plus a hair of fixed detune so it doesn't sound like an exact clone.
-  function shiftFor(i){ return PART_SEMITONES[i] - PART_SEMITONES[selectedPart]; }
-  function pitchFor(i){ return shiftFor(i) + PART_DETUNE_CENTS[i] / 100; }
-
-  function applyPitchShifts(){
-    pitchShifters.forEach((shifter, i) => {
-      if (!shifter) return;
-      shifter.pitch = pitchFor(i);
-    });
-  }
 
   function buildAudioGraph(){
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -394,11 +482,19 @@
     masterGain.gain.value = volume.value / 100;
     masterGain.connect(audioCtx.destination);
 
-    dryGain = audioCtx.createGain(); // your literal, unprocessed voice — always on while running
-    dryGain.gain.value = 1;
+    // The lead splits into two paths that sum back together: most of it is your
+    // fully untouched voice, with a smaller blend of a lightly pitch-corrected
+    // copy underneath — that's the "slightest touch" of autotune the brief
+    // asked for, not the fully quantized/robotic version.
+    dryGain = audioCtx.createGain();
+    dryGain.gain.value = 0.65;
     dryGain.connect(masterGain);
 
-    harmonyBed = audioCtx.createGain(); // sum of the 4 harmonized voices
+    correctedGain = audioCtx.createGain();
+    correctedGain.gain.value = 0.35;
+    correctedGain.connect(masterGain);
+
+    harmonyBed = audioCtx.createGain(); // sum of the 4 harmony voices
     harmonyBed.gain.value = 0; // starts silent until an open hand is confirmed
 
     // "Choir room" bus: a slow, shallow chorus (stands in for four different
@@ -408,9 +504,10 @@
     // blend, not a wash — the harmony stays intelligible, just glued together.
     harmonyChorus = new Tone.Chorus({ frequency: 0.6, delayTime: 4, depth: 0.5, feedback: 0.1, wet: 0.35 }).start();
     harmonyReverb = new Tone.Freeverb({ roomSize: 0.75, dampening: 3000, wet: 0.28 });
-    // harmonyBed is a native GainNode; harmonyChorus is a Tone.js node, so this
-    // is the same native->Tone bridge case as the mic connection above — same
-    // fix, Tone.connect() rather than the native .connect().
+    // harmonyBed is a native GainNode; harmonyChorus is a Tone.js node — a
+    // native AudioNode's own .connect() only accepts a native AudioNode/
+    // AudioParam, so this needs Tone.connect() as the bridge (same fix as the
+    // mic connections below).
     Tone.connect(harmonyBed, harmonyChorus);
     harmonyChorus.connect(harmonyReverb); // Tone -> Tone: fine to call directly
     harmonyReverb.connect(masterGain); // Tone -> native: fine to call directly
@@ -418,17 +515,23 @@
     micSource = audioCtx.createMediaStreamSource(micStream);
     micSource.connect(dryGain);
 
+    // The lead-correction shifter: tiny, partial nudges only (see onStableNote),
+    // so a small window is fine here — there's no large shift to smooth over.
+    leadCorrection = new Tone.PitchShift({ pitch: 0, windowSize: 0.08, feedback: 0 });
+    Tone.connect(micSource, leadCorrection);
+    leadCorrection.connect(correctedGain);
+
     pitchShifters = [];
-    partGains = [];
-    partFilters = [];
-    for (let i = 0; i < 5; i++){
+    harmonyGains = [];
+    harmonyFilters = [];
+    for (let i = 0; i < HARMONY_STEPS.length; i++){
       try {
         const shifter = new Tone.PitchShift({
-          pitch: pitchFor(i),
-          windowSize: 0.12, // a bit larger than the 0.1 default: smoother on
-                             // sustained sung notes, at the cost of reacting a
-                             // touch slower to fast transients — the right trade
-                             // for singing rather than percussive input.
+          pitch: 0,
+          windowSize: 0.15, // smoother on sustained sung notes than the 0.1
+                             // default; we don't need fast transient tracking
+                             // any more since the shift amount is only ever
+                             // updated at a detected note change, not per-frame.
           feedback: 0,       // any feedback here adds a metallic, comb-filtered
                               // resonance — the "robot" half of "monster-robot".
         });
@@ -442,71 +545,85 @@
         // Real-time pitch shifting throws off harsh, slightly metallic upper
         // harmonics (worse the further the shift), and downward shifts thicken
         // the low end into a "growl". A gentle high-cut and low-cut per voice
-        // files off both without dulling the voice — this is the "de-monster"
-        // EQ move, not just tone-shaping.
+        // files off both without dulling the voice.
         const lp = new Tone.Filter({ type: "lowpass", frequency: 8500, Q: 0.3 });
         const hp = new Tone.Filter({ type: "highpass", frequency: 140, Q: 0.3 });
         shifter.chain(lp, hp); // Tone node -> Tone node: fine to call directly
 
         const g = audioCtx.createGain();
-        // Slightly under the lead's volume (was 1.0): four pitch-shifted voices
-        // summed at full gain each read louder and more "walled" than the lead
-        // you're actually singing — sitting them a little under it is a normal
-        // backing-vocal mixing move and also just makes the stack feel less
-        // overwhelming/aggressive.
-        g.gain.value = (i === selectedPart) ? 0 : 0.55; // don't double your own part
+        // Slightly under the lead's volume: four harmony voices summed at full
+        // gain each read louder and more "walled" than the lead you're
+        // actually singing — sitting them a little under it is a normal
+        // backing-vocal mixing move.
+        g.gain.value = 0.55;
         hp.connect(g); // Tone node -> native node: fine to call directly
         g.connect(harmonyBed);
         pitchShifters.push(shifter);
-        partGains.push(g);
-        partFilters.push({ lp, hp });
+        harmonyGains.push(g);
+        harmonyFilters.push({ lp, hp });
       } catch (e){
-        log(`Voice "${PART_NAMES[i]}" failed to set up: ${e && e.message ? e.message : e}`);
+        log(`Harmony voice "${HARMONY_LABELS[i]}" failed to set up: ${e && e.message ? e.message : e}`);
         pitchShifters.push(null);
-        partGains.push(null);
-        partFilters.push(null);
+        harmonyGains.push(null);
+        harmonyFilters.push(null);
       }
     }
   }
 
-  function rewireSelectedPart(){
-    partGains.forEach((g, i) => {
-      if (!audioCtx || !g) return;
-      g.gain.setTargetAtTime(i === selectedPart ? 0 : 0.55, audioCtx.currentTime, 0.02);
+  // Called whenever the note tracker confirms you've settled on a new note
+  // (see startPitchLoop) — this is the only place harmony/correction pitches
+  // are touched, deliberately: retuning a real-time pitch shifter on every
+  // animation frame (rather than at actual note changes) is what was causing
+  // the choppiness before, since the shifter has to re-sync its internal
+  // crossfade each time its target changes.
+  function onStableNote(midi){
+    if (!haveKeyEstimate){
+      // Bootstrap: assume the very first note you land on is the tonic of a
+      // major key. This gets refined (and corrected if wrong) within a couple
+      // of seconds once reestimateKey() has more of your singing to go on.
+      keyTonic = pitchClassOf(midi);
+      keyIsMinor = false;
+      haveKeyEstimate = true;
+    }
+    const { snappedMidi, scaleIndex, scaleLen } = snapToScale(midi);
+    pitchShifters.forEach((shifter, i) => {
+      if (!shifter) return;
+      const targetMidi = scaleStepMidi(snappedMidi, scaleIndex, scaleLen, HARMONY_STEPS[i]);
+      shifter.pitch = (targetMidi - midi) + HARMONY_DETUNE_CENTS[i] / 100;
     });
-    applyPitchShifts();
-    renderLegend();
+    if (leadCorrection) leadCorrection.pitch = (snappedMidi - midi) * LEAD_CORRECTION_STRENGTH;
+    renderLegendState();
   }
-  partSelect.addEventListener("change", () => {
-    selectedPart = parseInt(partSelect.value, 10);
-    rewireSelectedPart();
-  });
 
-  // Plays a short reference tone through each of the 4 harmony voices in turn, so you
-  // can confirm the routing/pitch-shifting works independent of singing or gestures.
+  // Plays a short reference tone through each of the 4 harmony voices in turn,
+  // seeded from whatever note (and key) you were last on — or C4 in a
+  // provisional major key if you haven't sung yet — so you can confirm the
+  // routing/pitch-shifting works independent of singing or gestures.
   testBtn.addEventListener("click", () => {
     if (!audioCtx) return;
-    const order = [0,1,2,3,4].filter(i => i !== selectedPart && pitchShifters[i]);
-    if (order.length === 0){ log("No harmony voices available to test."); return; }
+    const testVoices = pitchShifters.map((s, i) => ({ s, i })).filter(v => v.s);
+    if (testVoices.length === 0){ log("No harmony voices available to test."); return; }
     const wasMode = currentMode;
+    const refMidi = stableMidi !== null ? stableMidi : 60; // C4 if you haven't sung yet
+    onStableNote(refMidi);
     harmonyBed.gain.setTargetAtTime(1, audioCtx.currentTime, 0.01);
-    log("Testing harmony voices…");
-    order.forEach((i, idx) => {
+    log(`Testing harmony voices around ${midiName(refMidi)}…`);
+    testVoices.forEach(({ s, i }, idx) => {
       setTimeout(() => {
         const now = audioCtx.currentTime;
         const osc = audioCtx.createOscillator();
         const g = audioCtx.createGain();
         osc.type = "sine";
-        osc.frequency.value = 220; // A3 reference pitch
+        osc.frequency.value = midiToFreq(refMidi);
         g.gain.value = 0;
         osc.connect(g);
-        Tone.connect(g, pitchShifters[i]);
+        Tone.connect(g, s);
         g.gain.setTargetAtTime(0.6, now, 0.01);
         g.gain.setTargetAtTime(0, now + 0.35, 0.05);
         osc.start(now);
         osc.stop(now + 0.6);
-        log(`${PART_NAMES[i]}: ${shiftFor(i) > 0 ? "+" : ""}${shiftFor(i)} semitones`);
-        if (idx === order.length - 1){
+        log(`${HARMONY_LABELS[i]}: ${s.pitch > 0 ? "+" : ""}${s.pitch.toFixed(1)} semitones`);
+        if (idx === testVoices.length - 1){
           setTimeout(() => { harmonyBed.gain.setTargetAtTime(wasMode === "harmony" ? 1 : 0, audioCtx.currentTime, 0.05); }, 700);
         }
       }, idx * 700);
@@ -518,11 +635,14 @@
     currentMode = mode;
     harmonizingActive = (mode === "harmony");
     const now = audioCtx.currentTime;
-    harmonyBed.gain.setTargetAtTime(mode === "harmony" ? 1 : 0, now, 0.05);
+    // A slightly longer ramp (was 0.05s) so that if the hand-gesture read ever
+    // flickers, the harmony fades rather than snaps in/out — a snap read as
+    // "choppy" even when everything upstream of it was working correctly.
+    harmonyBed.gain.setTargetAtTime(mode === "harmony" ? 1 : 0, now, 0.1);
     modeChip.dataset.mode = mode;
-    modeLabel.textContent = mode === "harmony" ? "Harmony — 5 parts" : "Dry — your voice only";
-    log(mode === "harmony" ? "Open hand → 5-part harmony." : "Hand closed → dry voice only.");
-    renderLegend();
+    modeLabel.textContent = mode === "harmony" ? "Harmony — 4 voices" : "Dry — your voice only";
+    log(mode === "harmony" ? "Open hand → harmony in." : "Hand closed → dry voice only.");
+    renderLegendState();
   }
 
   volume.addEventListener("input", () => {
@@ -596,16 +716,25 @@
     return sampleRate / T0;
   }
 
-  // Note: the harmony voices use a FIXED semitone shift (set once in buildAudioGraph /
-  // whenever "your part" changes) rather than being recomputed from detected pitch —
-  // Tone.PitchShift already tracks whatever frequency comes through it in real time,
-  // so re-setting .pitch continuously only added retuning artifacts without adding
-  // anything. This loop now purely drives the on-screen pitch meter.
+  // Note tracker: only fires onStableNote() (which is the only place harmony/
+  // correction pitches change) once a pitch has held steady for NOTE_HOLD_MS
+  // within NOTE_CENT_TOL cents — natural vibrato and vocal wobble stay inside
+  // that tolerance and don't re-trigger a retune. Everything else in this loop
+  // (meter, key histogram) still updates every frame.
+  let stableMidi = null;
+  let candidateMidi = null;
+  let candidateSince = 0;
+  const NOTE_HOLD_MS = 90;
+  const NOTE_CENT_TOL = 45;
+
   function startPitchLoop(){
     const buf = new Float32Array(analyser.fftSize);
+    let lastDecay = performance.now();
+    let lastKeyEstimateAt = 0;
     function loop(){
       analyser.getFloatTimeDomainData(buf);
       const freq = autoCorrelate(buf, audioCtx.sampleRate);
+      const now = performance.now();
 
       if (freq > 70 && freq < 1100){
         const { name, cents } = noteName(freq);
@@ -614,12 +743,39 @@
         const clamped = Math.max(-50, Math.min(50, cents));
         pitchNeedle.style.left = (50 + clamped) + "%";
         pitchNeedle.style.background = Math.abs(cents) < 12 ? "#7fe0a0" : "#5fd8c4";
+
+        const midi = freqToMidi(freq);
+        addToHistogram(pitchClassOf(midi), 0.02);
+
+        if (stableMidi === null || Math.abs(midi - stableMidi) * 100 > NOTE_CENT_TOL){
+          if (candidateMidi === null || Math.abs(midi - candidateMidi) * 100 > NOTE_CENT_TOL){
+            candidateMidi = midi;
+            candidateSince = now;
+          } else {
+            candidateMidi = candidateMidi * 0.7 + midi * 0.3;
+            if (now - candidateSince > NOTE_HOLD_MS){
+              stableMidi = candidateMidi;
+              candidateMidi = null;
+              onStableNote(stableMidi);
+            }
+          }
+        } else {
+          candidateMidi = null;
+        }
       } else {
         noteReadout.textContent = "—";
         centsReadout.textContent = "";
         pitchNeedle.style.left = "50%";
         pitchNeedle.style.background = "#5fd8c4";
       }
+
+      if (now - lastDecay > 200){ decayHistogram(); lastDecay = now; }
+      if (now - lastKeyEstimateAt > 1500){
+        const totalWeight = pitchClassWeight.reduce((a, b) => a + b, 0);
+        if (totalWeight > 1.2) { reestimateKey(); renderLegendState(); }
+        lastKeyEstimateAt = now;
+      }
+
       pitchRAF = requestAnimationFrame(loop);
     }
     loop();
@@ -630,8 +786,8 @@
   let showSkeleton = true;
   let confirmedMode = "dry";
   let candidateMode = null;
-  let candidateSince = 0;
-  const HOLD_MS = 220;
+  let candidateSince2 = 0;
+  const HOLD_MS = 260;
 
   function dist(a, b){ return Math.hypot(a.x - b.x, a.y - b.y); }
 
@@ -675,14 +831,14 @@
     const now = performance.now();
     if (overall && overall !== confirmedMode){
       if (overall === candidateMode){
-        if (now - candidateSince >= HOLD_MS){
+        if (now - candidateSince2 >= HOLD_MS){
           confirmedMode = overall;
           candidateMode = null;
           applyMode(confirmedMode);
         }
       } else {
         candidateMode = overall;
-        candidateSince = now;
+        candidateSince2 = now;
       }
     } else {
       candidateMode = null;
@@ -695,7 +851,12 @@
     });
     hands.setOptions({
       maxNumHands: 1,
-      modelComplexity: 1,
+      modelComplexity: 0, // "lite" model: noticeably lighter on the CPU than
+                           // the default, which matters here since it's
+                           // running frame-by-frame on the same machine that's
+                           // also doing real-time audio processing — freeing
+                           // up CPU headroom reduces audio buffer underruns
+                           // (a real, separate cause of "choppy" audio).
       minDetectionConfidence: 0.6,
       minTrackingConfidence: 0.6,
     });
@@ -752,14 +913,16 @@
       harmonizingActive = false;
       modeChip.dataset.mode = "dry";
       modeLabel.textContent = "Dry — your voice only";
-      renderLegend();
+      resetKeyTracking();
+      stableMidi = null; candidateMidi = null;
+      renderLegendState();
       startPitchLoop();
       scheduleClick();
 
       stopBtn.disabled = false;
       toggleSkeleton.disabled = false;
       testBtn.disabled = false;
-      log("Session started. Open your hand for the five-part harmony; close it for just your voice.");
+      log("Session started. Open your hand for harmony; close it for just your voice.");
     } catch (err){
       const msg = err && err.message ? err.message : String(err);
       log("Error: " + msg);
@@ -776,12 +939,13 @@
       if (micStream) micStream.getTracks().forEach(t => t.stop());
       if (pitchRAF) cancelAnimationFrame(pitchRAF);
       clearInterval(clickTimer);
-      pitchShifters.forEach(s => { try { s.dispose(); } catch(e){} });
-      partFilters.forEach(f => { if (!f) return; try { f.lp.dispose(); } catch(e){} try { f.hp.dispose(); } catch(e){} });
+      pitchShifters.forEach(s => { if (!s) return; try { s.dispose(); } catch(e){} });
+      harmonyFilters.forEach(f => { if (!f) return; try { f.lp.dispose(); } catch(e){} try { f.hp.dispose(); } catch(e){} });
+      try { if (leadCorrection) leadCorrection.dispose(); } catch(e){}
       try { if (harmonyChorus) harmonyChorus.dispose(); } catch(e){}
       try { if (harmonyReverb) harmonyReverb.dispose(); } catch(e){}
-      pitchShifters = []; partGains = []; partFilters = [];
-      harmonyChorus = null; harmonyReverb = null;
+      pitchShifters = []; harmonyGains = []; harmonyFilters = [];
+      leadCorrection = null; harmonyChorus = null; harmonyReverb = null;
       if (audioCtx) audioCtx.close();
       audioCtx = null;
     } catch(e){}
@@ -793,7 +957,7 @@
     centsReadout.textContent = "";
     pitchNeedle.style.left = "50%";
     harmonizingActive = false;
-    renderLegend();
+    renderLegendState();
     startBtn.disabled = false;
     stopBtn.disabled = true;
     toggleSkeleton.disabled = true;
