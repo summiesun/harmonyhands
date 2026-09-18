@@ -408,9 +408,12 @@
     // blend, not a wash — the harmony stays intelligible, just glued together.
     harmonyChorus = new Tone.Chorus({ frequency: 0.6, delayTime: 4, depth: 0.5, feedback: 0.1, wet: 0.35 }).start();
     harmonyReverb = new Tone.Freeverb({ roomSize: 0.75, dampening: 3000, wet: 0.28 });
-    harmonyBed.connect(harmonyChorus);
-    harmonyChorus.connect(harmonyReverb);
-    harmonyReverb.connect(masterGain);
+    // harmonyBed is a native GainNode; harmonyChorus is a Tone.js node, so this
+    // is the same native->Tone bridge case as the mic connection above — same
+    // fix, Tone.connect() rather than the native .connect().
+    Tone.connect(harmonyBed, harmonyChorus);
+    harmonyChorus.connect(harmonyReverb); // Tone -> Tone: fine to call directly
+    harmonyReverb.connect(masterGain); // Tone -> native: fine to call directly
 
     micSource = audioCtx.createMediaStreamSource(micStream);
     micSource.connect(dryGain);
