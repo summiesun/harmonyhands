@@ -845,7 +845,12 @@
 
   async function startCamera(){
     hands = new Hands({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      // Pinned to the exact same version as the <script> tag that loads
+      // hands.js. Leaving this unpinned points at whatever jsdelivr resolves
+      // "latest" to right now, which can silently drift out of sync with the
+      // pinned script and break the WASM/data-file loading entirely (that's
+      // what just happened — a version mismatch, not your camera or mic).
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`
     });
     hands.setOptions({
       maxNumHands: 1,
@@ -905,7 +910,13 @@
       micStream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
       });
-      log("Microphone ready.");
+      // Shows exactly which physical device the browser actually grabbed —
+      // this follows whatever your system's default input is at the moment
+      // you click Start, so if it's not naming your wired mic/headset, the
+      // fix is picking it as the system default (or in this site's camera/mic
+      // permission settings) before starting, not something this app controls.
+      const micLabel = micStream.getAudioTracks()[0] && micStream.getAudioTracks()[0].label;
+      log(`Microphone ready: ${micLabel || "(unnamed input device)"}`);
 
       log("Loading harmony engine…");
       await buildAudioGraph();
