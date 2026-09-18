@@ -298,12 +298,21 @@
   // ---------- Music theory ----------
   // No key to set: each harmony voice is a FIXED interval above/below whatever note
   // you're singing, so it always tracks your live pitch directly. The five values are
-  // semitone positions stacked from a common reference (root, 5th, root, 3rd, 5th —
-  // i.e. a major triad spread across two octaves), so any two parts differ by a
-  // consonant, chord-tone interval no matter what you sing.
+  // a close major-triad voicing (3rd/5th an octave down, root, 3rd, 5th) spanning
+  // 15 semitones total rather than a full 19 — kept deliberately inside about an
+  // octave-and-a-fourth so no voice needs a full-octave shift off the lead. A
+  // non-formant-corrected pitch shifter (what Tone.PitchShift is) gets noticeably
+  // more "monster"/robotic the further it moves from the source pitch — a full
+  // octave down is exactly what produces that demonic-growl artifact — so keeping
+  // every part within roughly a 6th–8th of whichever voice you pick is what keeps
+  // this sounding like a choir instead of a vocoder.
   const PART_NAMES = ["Soprano", "Alto", "Tenor", "Baritone", "Bass"];
   const PART_COLORS = ["#e8b34e", "#5fd8c4", "#e37b6b", "#9b8cf2", "#7fd0e8"];
-  const PART_SEMITONES = [19, 16, 12, 7, 0]; // Soprano..Bass
+  const PART_SEMITONES = [7, 4, 0, -5, -8]; // Soprano..Bass
+  // A few cents of fixed detune per voice (not whole semitones) so the harmony
+  // stack sounds like several different singers rather than the same throat
+  // cloned four times — real ensembles never sit at a perfectly identical pitch.
+  const PART_DETUNE_CENTS = [-4, 2, 0, -2, 5]; // Soprano..Bass, in cents
 
   function noteName(freq){
     if (!freq || freq <= 0) return { name: "—", cents: 0 };
@@ -355,21 +364,25 @@
   // ---------- Audio engine ----------
   let audioCtx = null;
   let masterGain, dryGain, harmonyBed;
+  let harmonyChorus = null, harmonyReverb = null; // shared "choir room" bus, see buildAudioGraph
   let pitchShifters = []; // one per part, index-aligned with PART_NAMES
   let partGains = [];
+  let partFilters = []; // { lp, hp } per part, index-aligned with PART_NAMES
   let currentMode = "dry"; // "dry" | "harmony"
   let clickOn = false;
   let clickTimer = null;
   let micStream = null, micSource = null, analyser = null, pitchRAF = null;
 
   // The constant semitone shift for harmony voice `i`, relative to whichever part
-  // you've selected as "your voice" (that part's own shift is always 0 — it's dry).
+  // you've selected as "your voice" (that part's own shift is always 0 — it's dry),
+  // plus a hair of fixed detune so it doesn't sound like an exact clone.
   function shiftFor(i){ return PART_SEMITONES[i] - PART_SEMITONES[selectedPart]; }
+  function pitchFor(i){ return shiftFor(i) + PART_DETUNE_CENTS[i] / 100; }
 
   function applyPitchShifts(){
     pitchShifters.forEach((shifter, i) => {
       if (!shifter) return;
-      shifter.pitch = shiftFor(i);
+      shifter.pitch = pitchFor(i);
     });
   }
 
@@ -387,33 +400,68 @@
 
     harmonyBed = audioCtx.createGain(); // sum of the 4 harmonized voices
     harmonyBed.gain.value = 0; // starts silent until an open hand is confirmed
-    harmonyBed.connect(masterGain);
+
+    // "Choir room" bus: a slow, shallow chorus (stands in for four different
+    // singers never sitting at *exactly* the same pitch/timing) feeding a short
+    // room reverb (the airy tail that reads as "angelic" instead of "dry and
+    // pitched"). Both are Tone.Effect nodes, so their own .wet keeps this a
+    // blend, not a wash — the harmony stays intelligible, just glued together.
+    harmonyChorus = new Tone.Chorus({ frequency: 0.6, delayTime: 4, depth: 0.5, feedback: 0.1, wet: 0.35 }).start();
+    harmonyReverb = new Tone.Freeverb({ roomSize: 0.75, dampening: 3000, wet: 0.28 });
+    harmonyBed.connect(harmonyChorus);
+    harmonyChorus.connect(harmonyReverb);
+    harmonyReverb.connect(masterGain);
 
     micSource = audioCtx.createMediaStreamSource(micStream);
     micSource.connect(dryGain);
 
     pitchShifters = [];
     partGains = [];
+    partFilters = [];
     for (let i = 0; i < 5; i++){
       try {
-        const shifter = new Tone.PitchShift(shiftFor(i));
-        shifter.windowSize = 0.1;
+        const shifter = new Tone.PitchShift({
+          pitch: pitchFor(i),
+          windowSize: 0.12, // a bit larger than the 0.1 default: smoother on
+                             // sustained sung notes, at the cost of reacting a
+                             // touch slower to fast transients — the right trade
+                             // for singing rather than percussive input.
+          feedback: 0,       // any feedback here adds a metallic, comb-filtered
+                              // resonance — the "robot" half of "monster-robot".
+        });
         // IMPORTANT: a native AudioNode's own .connect() only accepts a native
         // AudioNode/AudioParam — passing shifter.input directly throws
         // "Overload resolution failed" because it's a Tone.js-wrapped object,
         // not a raw AudioNode. Tone.connect() is the documented bridge for
         // wiring native Web Audio nodes into/out of Tone.js nodes.
         Tone.connect(micSource, shifter);
+
+        // Real-time pitch shifting throws off harsh, slightly metallic upper
+        // harmonics (worse the further the shift), and downward shifts thicken
+        // the low end into a "growl". A gentle high-cut and low-cut per voice
+        // files off both without dulling the voice — this is the "de-monster"
+        // EQ move, not just tone-shaping.
+        const lp = new Tone.Filter({ type: "lowpass", frequency: 8500, Q: 0.3 });
+        const hp = new Tone.Filter({ type: "highpass", frequency: 140, Q: 0.3 });
+        shifter.chain(lp, hp); // Tone node -> Tone node: fine to call directly
+
         const g = audioCtx.createGain();
-        g.gain.value = (i === selectedPart) ? 0 : 1; // don't double your own part
-        shifter.connect(g); // Tone node -> native node: fine to call directly
+        // Slightly under the lead's volume (was 1.0): four pitch-shifted voices
+        // summed at full gain each read louder and more "walled" than the lead
+        // you're actually singing — sitting them a little under it is a normal
+        // backing-vocal mixing move and also just makes the stack feel less
+        // overwhelming/aggressive.
+        g.gain.value = (i === selectedPart) ? 0 : 0.55; // don't double your own part
+        hp.connect(g); // Tone node -> native node: fine to call directly
         g.connect(harmonyBed);
         pitchShifters.push(shifter);
         partGains.push(g);
+        partFilters.push({ lp, hp });
       } catch (e){
         log(`Voice "${PART_NAMES[i]}" failed to set up: ${e && e.message ? e.message : e}`);
         pitchShifters.push(null);
         partGains.push(null);
+        partFilters.push(null);
       }
     }
   }
@@ -421,7 +469,7 @@
   function rewireSelectedPart(){
     partGains.forEach((g, i) => {
       if (!audioCtx || !g) return;
-      g.gain.setTargetAtTime(i === selectedPart ? 0 : 1, audioCtx.currentTime, 0.02);
+      g.gain.setTargetAtTime(i === selectedPart ? 0 : 0.55, audioCtx.currentTime, 0.02);
     });
     applyPitchShifts();
     renderLegend();
@@ -726,7 +774,11 @@
       if (pitchRAF) cancelAnimationFrame(pitchRAF);
       clearInterval(clickTimer);
       pitchShifters.forEach(s => { try { s.dispose(); } catch(e){} });
-      pitchShifters = []; partGains = [];
+      partFilters.forEach(f => { if (!f) return; try { f.lp.dispose(); } catch(e){} try { f.hp.dispose(); } catch(e){} });
+      try { if (harmonyChorus) harmonyChorus.dispose(); } catch(e){}
+      try { if (harmonyReverb) harmonyReverb.dispose(); } catch(e){}
+      pitchShifters = []; partGains = []; partFilters = [];
+      harmonyChorus = null; harmonyReverb = null;
       if (audioCtx) audioCtx.close();
       audioCtx = null;
     } catch(e){}
