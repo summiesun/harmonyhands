@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HarmonyHands — live vocal harmonizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #15111f;
+    --bg-2: #1d1729;
+    --panel: #221b32;
+    --panel-2: #2a2240;
+    --line: #382c50;
+    --text: #f1ece1;
+    --text-dim: #b8aecb;
+    --gold: #e8b34e;
+    --teal: #5fd8c4;
+    --danger: #e37b6b;
+    --font-display: 'Fraunces', serif;
+    --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light){
+    :root:not([data-theme="dark"]){
+      --bg: #f7f3ea;
+      --bg-2: #efe8d8;
+      --panel: #fffdf8;
+      --panel-2: #f1ead9;
+      --line: #ddd0b0;
+      --text: #241d14;
+      --text-dim: #6b5f47;
+    }
+  }
+  :root[data-theme="light"]{
+    --bg: #f7f3ea;
+    --bg-2: #efe8d8;
+    --panel: #fffdf8;
+    --panel-2: #f1ead9;
+    --line: #ddd0b0;
+    --text: #241d14;
+    --text-dim: #6b5f47;
+  }
+
+  *{ box-sizing: border-box; }
+  html, body{ margin:0; padding:0; }
+  body{
+    background: radial-gradient(120% 140% at 15% -10%, var(--bg-2), var(--bg) 60%);
+    color: var(--text);
+    font-family: var(--font-body);
+    min-height: 100vh;
+    padding: 28px 20px 60px;
+  }
+
+  .wrap{ max-width: 1180px; margin: 0 auto; }
+
+  header{
+    display:flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+    gap: 12px; margin-bottom: 26px; border-bottom: 1px solid var(--line); padding-bottom: 18px;
+  }
+  h1{
+    font-family: var(--font-display); font-weight: 600; font-size: clamp(28px, 4vw, 40px);
+    margin: 0; letter-spacing: -0.01em;
+  }
+  header p{ margin: 4px 0 0; color: var(--text-dim); font-size: 15px; max-width: 52ch; }
+
+  .badges{ display:flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .badge{
+    display:inline-block; font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px;
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--text-dim);
+  }
+  .badge.warn{ color: var(--gold); border-color: var(--gold); }
+
+  .layout{
+    display: grid; grid-template-columns: 1.3fr 1fr; gap: 22px;
+  }
+  @media (max-width: 900px){ .layout{ grid-template-columns: 1fr; } }
+
+  .panel{
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 20px; overflow: hidden;
+  }
+  .panel + .panel{ margin-top: 18px; }
+
+  .stage{ position: relative; }
+  .stage-frame{
+    position: relative; width: 100%; aspect-ratio: 4/3; background: #0d0a15;
+    border-radius: 10px; overflow: hidden; border: 1px solid var(--line);
+  }
+  video, canvas.overlay{
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    transform: scaleX(-1); /* mirror */
+  }
+  video{ object-fit: cover; }
+  canvas.overlay{ pointer-events: none; }
+
+  .mode-chip{
+    position: absolute; top: 12px; left: 12px; z-index: 3;
+    display:flex; align-items:center; gap: 8px;
+    background: rgba(13,10,21,0.72); border: 1px solid rgba(255,255,255,0.14);
+    padding: 7px 13px 7px 10px; border-radius: 999px; font-size: 13px; font-weight: 600;
+    backdrop-filter: blur(6px);
+  }
+  .mode-dot{ width: 9px; height: 9px; border-radius: 50%; background: var(--text-dim); transition: background .2s; }
+  .mode-chip[data-mode="harmony"] .mode-dot{ background: var(--gold); box-shadow: 0 0 10px var(--gold); }
+  .mode-chip[data-mode="dry"] .mode-dot{ background: var(--teal); box-shadow: 0 0 10px var(--teal); }
+
+  .placeholder{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    flex-direction: column; gap: 10px; color: var(--text-dim); text-align:center; padding: 24px;
+  }
+  .placeholder svg{ opacity: .5; }
+
+  .stage-controls{ display:flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+
+  button{
+    font-family: var(--font-body); font-weight: 600; font-size: 14px;
+    border-radius: 9px; border: 1px solid var(--line); background: var(--panel-2);
+    color: var(--text); padding: 10px 16px; cursor: pointer; transition: transform .08s, border-color .15s;
+  }
+  button:hover{ border-color: var(--gold); }
+  button:active{ transform: scale(0.97); }
+  button.primary{ background: var(--gold); color: #241a05; border-color: var(--gold); }
+  button.primary:hover{ filter: brightness(1.05); }
+  button.danger{ background: transparent; color: var(--danger); border-color: var(--danger); }
+  button:disabled{ opacity: .45; cursor: not-allowed; }
+
+  h2{ font-family: var(--font-display); font-size: 19px; font-weight: 600; margin: 0 0 14px; }
+
+  .field{ margin-bottom: 16px; }
+  .field:last-child{ margin-bottom: 0; }
+  label{ display:block; font-size: 12.5px; color: var(--text-dim); margin-bottom: 6px; font-weight: 500; }
+  select, input[type="range"]{ width: 100%; }
+  select{
+    font-family: var(--font-body); font-size: 14px; padding: 9px 10px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+  }
+  .row{ display:flex; align-items:center; gap: 10px; }
+  .row .val{ font-variant-numeric: tabular-nums; font-size: 13px; color: var(--text-dim); min-width: 46px; text-align:right; }
+  .two-col{ display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .parts-legend{ display:flex; flex-direction:column; gap: 6px; margin-top: 4px; }
+  .part-row{
+    display:flex; align-items:center; gap: 10px; padding: 7px 10px; border-radius: 8px;
+    border: 1px solid transparent; font-size: 13.5px; color: var(--text-dim);
+  }
+  .part-row .swatch{ width: 10px; height: 10px; border-radius: 50%; background: var(--line); flex-shrink:0; }
+  .part-row.you{ border-color: var(--gold); background: rgba(232,179,78,0.08); color: var(--text); font-weight: 600; }
+  .part-row.you .swatch{ background: var(--gold); }
+  .part-row .tag{ margin-left: auto; font-size: 11px; color: var(--text-dim); }
+  .part-row.harmonizing .swatch{ background: var(--teal); box-shadow: 0 0 8px var(--teal); }
+
+  .pitch-meter{
+    height: 54px; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--line);
+    position: relative; overflow: hidden; margin-top: 6px;
+  }
+  .pitch-center{ position:absolute; left:50%; top:0; bottom:0; width:1px; background: var(--line); }
+  .pitch-needle{
+    position:absolute; top: 6px; bottom: 6px; width: 4px; border-radius: 3px; background: var(--teal);
+    left: 50%; transform: translateX(-50%); transition: left .08s linear, background .1s;
+  }
+  .pitch-labels{ display:flex; justify-content:space-between; font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+  .pitch-readout{ font-family: var(--font-display); font-size: 20px; margin-top: 8px; }
+  .pitch-readout .cents{ font-family: var(--font-body); font-size: 12.5px; color: var(--text-dim); margin-left: 6px; }
+
+  .log{
+    font-size: 12.5px; color: var(--text-dim); background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px 12px; height: 96px; overflow-y: auto; line-height: 1.55;
+  }
+  .log div:last-child{ color: var(--text); }
+
+  footer{ margin-top: 30px; color: var(--text-dim); font-size: 12.5px; line-height: 1.6; border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1>HarmonyHands</h1>
+      <p>Open your hand and your own voice splits into a live five-part harmony. Close it (or drop it out of frame) and you hear just your natural voice. A working proof of concept — the gesture control, pitch tracking, and harmonization are real, running entirely on your live singing, not a backing track.</p>
+    </div>
+    <div class="badges">
+      <span class="badge">prototype</span>
+      <span class="badge warn">use headphones</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <div>
+      <div class="panel stage">
+        <h2>Camera</h2>
+        <div class="stage-frame" id="stageFrame">
+          <video id="video" playsinline muted></video>
+          <canvas class="overlay" id="overlay"></canvas>
+          <div class="mode-chip" id="modeChip" data-mode="idle">
+            <span class="mode-dot"></span>
+            <span id="modeLabel">Camera off</span>
+          </div>
+          <div class="placeholder" id="placeholder">
+            <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9 11V7a3 3 0 016 0v6a3 3 0 01-6 0v-1"/><path d="M15 11l2-1v6a5 5 0 01-10 0v-2"/></svg>
+            <div>Start the session to enable your camera and microphone.<br>Everything runs locally in your browser. Headphones strongly recommended — your voice is routed live to the output.</div>
+          </div>
+        </div>
+        <div class="stage-controls">
+          <button class="primary" id="startBtn">Start session</button>
+          <button class="danger" id="stopBtn" disabled>Stop</button>
+          <button id="toggleSkeleton" disabled>Hide hand tracking</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Pitch feedback</h2>
+        <div class="pitch-readout"><span id="noteReadout">—</span><span class="cents" id="centsReadout"></span></div>
+        <div class="pitch-meter">
+          <div class="pitch-center"></div>
+          <div class="pitch-needle" id="pitchNeedle"></div>
+        </div>
+        <div class="pitch-labels"><span>flat</span><span>on pitch</span><span>sharp</span></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h2>Your voice</h2>
+        <div class="field">
+          <label for="partSelect">Which part is your voice</label>
+          <select id="partSelect">
+            <option value="0">Soprano (top)</option>
+            <option value="1">Alto</option>
+            <option value="2" selected>Tenor</option>
+            <option value="3">Baritone</option>
+            <option value="4">Bass (bottom)</option>
+          </select>
+        </div>
+        <div class="parts-legend" id="partsLegend"></div>
+        <div class="field" style="margin-top:14px;">
+          <button id="testBtn" disabled style="width:100%;">Test the 4 harmony voices</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Mix</h2>
+        <div class="field">
+          <label>Master volume</label>
+          <div class="row">
+            <input type="range" id="volume" min="0" max="100" value="70">
+            <span class="val" id="volumeVal">70%</span>
+          </div>
+        </div>
+        <div class="field row" style="justify-content: space-between;">
+          <label style="margin:0;">Mute everything</label>
+          <button id="muteBtn">Mute</button>
+        </div>
+        <div class="field">
+          <label>Metronome tempo (practice aid only)</label>
+          <div class="row">
+            <input type="range" id="tempo" min="60" max="140" value="90">
+            <span class="val" id="tempoVal">90 BPM</span>
+          </div>
+        </div>
+        <div class="field row" style="justify-content: space-between;">
+          <label style="margin:0;">Metronome click</label>
+          <button id="clickBtn">Off</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Status</h2>
+        <div class="log" id="log"><div>Waiting to start…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Hand detection uses MediaPipe Hands and voice harmonization uses Tone.js's real-time pitch shifter — both run
+    entirely in your browser; no audio or video leaves your device. Gesture logic: an open hand (≥3 fingers
+    extended) splits your live voice into the full five-part harmony; a closed fist, an ambiguous pose, or no hand
+    in frame plays just your natural voice. The four harmony voices are fixed intervals above/below whatever note
+    you're singing (stacked thirds and fifths outlining a major chord on your note) — no key to set, it always
+    tracks your live pitch directly. Use "Test the 4 harmony voices" after starting to hear each one on its own.
+  </footer>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js" crossorigin="anonymous"></script>
+<script>
+(function(){
+  "use strict";
+
+  // ---------- Music theory ----------
+  // No key to set: each harmony voice is a FIXED interval above/below whatever note
+  // you're singing, so it always tracks your live pitch directly. The five values are
+  // semitone positions stacked from a common reference (root, 5th, root, 3rd, 5th —
+  // i.e. a major triad spread across two octaves), so any two parts differ by a
+  // consonant, chord-tone interval no matter what you sing.
+  const PART_NAMES = ["Soprano", "Alto", "Tenor", "Baritone", "Bass"];
+  const PART_COLORS = ["#e8b34e", "#5fd8c4", "#e37b6b", "#9b8cf2", "#7fd0e8"];
+  const PART_SEMITONES = [19, 16, 12, 7, 0]; // Soprano..Bass
+
+  function noteName(freq){
+    if (!freq || freq <= 0) return { name: "—", cents: 0 };
+    const A4 = 440;
+    const n = Math.round(12 * Math.log2(freq / A4));
+    const names = ["A","A#","B","C","C#","D","D#","E","F","F#","G","G#"];
+    const name = names[((n % 12) + 12) % 12];
+    const octave = 4 + Math.floor((n + 9) / 12);
+    const exact = A4 * Math.pow(2, n / 12);
+    const cents = Math.round(1200 * Math.log2(freq / exact));
+    return { name: name + octave, cents };
+  }
+
+  // ---------- DOM ----------
+  const $ = (id) => document.getElementById(id);
+  const video = $("video"), overlay = $("overlay"), placeholder = $("placeholder");
+  const startBtn = $("startBtn"), stopBtn = $("stopBtn"), toggleSkeleton = $("toggleSkeleton");
+  const modeChip = $("modeChip"), modeLabel = $("modeLabel");
+  const partSelect = $("partSelect"), partsLegend = $("partsLegend"), testBtn = $("testBtn");
+  const volume = $("volume"), volumeVal = $("volumeVal");
+  const tempo = $("tempo"), tempoVal = $("tempoVal");
+  const muteBtn = $("muteBtn"), clickBtn = $("clickBtn");
+  const logEl = $("log");
+  const noteReadout = $("noteReadout"), centsReadout = $("centsReadout"), pitchNeedle = $("pitchNeedle");
+  const ctx2d = overlay.getContext("2d");
+
+  function log(msg){
+    const d = document.createElement("div");
+    d.textContent = msg;
+    logEl.appendChild(d);
+    logEl.scrollTop = logEl.scrollHeight;
+    while (logEl.children.length > 40) logEl.removeChild(logEl.firstChild);
+  }
+
+  let selectedPart = 2;
+  let harmonizingActive = false;
+  function renderLegend(){
+    partsLegend.innerHTML = "";
+    PART_NAMES.forEach((name, i) => {
+      const row = document.createElement("div");
+      const isYou = i === selectedPart;
+      row.className = "part-row" + (isYou ? " you" : "") + (!isYou && harmonizingActive ? " harmonizing" : "");
+      row.innerHTML = `<span class="swatch" style="background:${isYou ? PART_COLORS[i] : ''}"></span>${name}<span class="tag">${isYou ? "your voice" : (harmonizingActive ? "harmonizing" : "")}</span>`;
+      partsLegend.appendChild(row);
+    });
+  }
+  renderLegend();
+
+  // ---------- Audio engine ----------
+  let audioCtx = null;
+  let masterGain, dryGain, harmonyBed;
+  let pitchShifters = []; // one per part, index-aligned with PART_NAMES
+  let partGains = [];
+  let currentMode = "dry"; // "dry" | "harmony"
+  let clickOn = false;
+  let clickTimer = null;
+  let micStream = null, micSource = null, analyser = null, pitchRAF = null;
+
+  // The constant semitone shift for harmony voice `i`, relative to whichever part
+  // you've selected as "your voice" (that part's own shift is always 0 — it's dry).
+  function shiftFor(i){ return PART_SEMITONES[i] - PART_SEMITONES[selectedPart]; }
+
+  function applyPitchShifts(){
+    pitchShifters.forEach((shifter, i) => {
+      if (!shifter) return;
+      shifter.pitch = shiftFor(i);
+    });
+  }
+
+  function buildAudioGraph(){
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    Tone.setContext(audioCtx);
+
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = volume.value / 100;
+    masterGain.connect(audioCtx.destination);
+
+    dryGain = audioCtx.createGain(); // your literal, unprocessed voice — always on while running
+    dryGain.gain.value = 1;
+    dryGain.connect(masterGain);
+
+    harmonyBed = audioCtx.createGain(); // sum of the 4 harmonized voices
+    harmonyBed.gain.value = 0; // starts silent until an open hand is confirmed
+    harmonyBed.connect(masterGain);
+
+    micSource = audioCtx.createMediaStreamSource(micStream);
+    micSource.connect(dryGain);
+
+    pitchShifters = [];
+    partGains = [];
+    for (let i = 0; i < 5; i++){
+      try {
+        const shifter = new Tone.PitchShift(shiftFor(i));
+        shifter.windowSize = 0.1;
+        // IMPORTANT: connect a native node into a Tone node via its .input,
+        // not the Tone object itself — the raw AudioNode.connect() call
+        // silently fails to route audio if given a non-native object.
+        micSource.connect(shifter.input);
+        const g = audioCtx.createGain();
+        g.gain.value = (i === selectedPart) ? 0 : 1; // don't double your own part
+        shifter.connect(g); // Tone node -> native node: fine to call directly
+        g.connect(harmonyBed);
+        pitchShifters.push(shifter);
+        partGains.push(g);
+      } catch (e){
+        log(`Voice "${PART_NAMES[i]}" failed to set up: ${e && e.message ? e.message : e}`);
+        pitchShifters.push(null);
+        partGains.push(null);
+      }
+    }
+  }
+
+  function rewireSelectedPart(){
+    partGains.forEach((g, i) => {
+      if (!audioCtx || !g) return;
+      g.gain.setTargetAtTime(i === selectedPart ? 0 : 1, audioCtx.currentTime, 0.02);
+    });
+    applyPitchShifts();
+    renderLegend();
+  }
+  partSelect.addEventListener("change", () => {
+    selectedPart = parseInt(partSelect.value, 10);
+    rewireSelectedPart();
+  });
+
+  // Plays a short reference tone through each of the 4 harmony voices in turn, so you
+  // can confirm the routing/pitch-shifting works independent of singing or gestures.
+  testBtn.addEventListener("click", () => {
+    if (!audioCtx) return;
+    const order = [0,1,2,3,4].filter(i => i !== selectedPart && pitchShifters[i]);
+    if (order.length === 0){ log("No harmony voices available to test."); return; }
+    const wasMode = currentMode;
+    harmonyBed.gain.setTargetAtTime(1, audioCtx.currentTime, 0.01);
+    log("Testing harmony voices…");
+    order.forEach((i, idx) => {
+      setTimeout(() => {
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = 220; // A3 reference pitch
+        g.gain.value = 0;
+        osc.connect(g);
+        g.connect(pitchShifters[i].input);
+        g.gain.setTargetAtTime(0.6, now, 0.01);
+        g.gain.setTargetAtTime(0, now + 0.35, 0.05);
+        osc.start(now);
+        osc.stop(now + 0.6);
+        log(`${PART_NAMES[i]}: ${shiftFor(i) > 0 ? "+" : ""}${shiftFor(i)} semitones`);
+        if (idx === order.length - 1){
+          setTimeout(() => { harmonyBed.gain.setTargetAtTime(wasMode === "harmony" ? 1 : 0, audioCtx.currentTime, 0.05); }, 700);
+        }
+      }, idx * 700);
+    });
+  });
+
+  function applyMode(mode){
+    if (!audioCtx || mode === currentMode) return;
+    currentMode = mode;
+    harmonizingActive = (mode === "harmony");
+    const now = audioCtx.currentTime;
+    harmonyBed.gain.setTargetAtTime(mode === "harmony" ? 1 : 0, now, 0.05);
+    modeChip.dataset.mode = mode;
+    modeLabel.textContent = mode === "harmony" ? "Harmony — 5 parts" : "Dry — your voice only";
+    log(mode === "harmony" ? "Open hand → 5-part harmony." : "Hand closed → dry voice only.");
+    renderLegend();
+  }
+
+  volume.addEventListener("input", () => {
+    volumeVal.textContent = volume.value + "%";
+    if (masterGain) masterGain.gain.setTargetAtTime(volume.value / 100, audioCtx.currentTime, 0.03);
+  });
+  let isMuted = false;
+  muteBtn.addEventListener("click", () => {
+    if (!masterGain) return;
+    isMuted = !isMuted;
+    masterGain.gain.setTargetAtTime(isMuted ? 0 : volume.value / 100, audioCtx.currentTime, 0.03);
+    muteBtn.textContent = isMuted ? "Unmute" : "Mute";
+  });
+  tempo.addEventListener("input", () => {
+    tempoVal.textContent = tempo.value + " BPM";
+    if (clickOn) scheduleClick();
+  });
+  clickBtn.addEventListener("click", () => {
+    clickOn = !clickOn;
+    clickBtn.textContent = clickOn ? "On" : "Off";
+    scheduleClick();
+  });
+  function scheduleClick(){
+    clearInterval(clickTimer);
+    if (!clickOn || !audioCtx) return;
+    const bpm = parseInt(tempo.value, 10);
+    const beatMs = 60000 / bpm;
+    clickTimer = setInterval(() => {
+      if (!audioCtx) return;
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.frequency.value = 1500;
+      g.gain.value = 0.12;
+      o.connect(g); g.connect(masterGain);
+      o.start();
+      g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
+      o.stop(audioCtx.currentTime + 0.06);
+    }, beatMs);
+  }
+
+  // ---------- Pitch detection (autocorrelation) ----------
+  function autoCorrelate(buf, sampleRate){
+    const SIZE = buf.length;
+    let rms = 0;
+    for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
+    rms = Math.sqrt(rms / SIZE);
+    if (rms < 0.01) return -1; // too quiet
+
+    let r1 = 0, r2 = SIZE - 1;
+    const thres = 0.2;
+    for (let i = 0; i < SIZE / 2; i++) if (Math.abs(buf[i]) < thres) { r1 = i; break; }
+    for (let i = 1; i < SIZE / 2; i++) if (Math.abs(buf[SIZE - i]) < thres) { r2 = SIZE - i; break; }
+
+    const trimmed = buf.slice(r1, r2);
+    const n = trimmed.length;
+    const c = new Array(n).fill(0);
+    for (let lag = 0; lag < n; lag++){
+      for (let i = 0; i < n - lag; i++) c[lag] += trimmed[i] * trimmed[i + lag];
+    }
+    let d = 0;
+    while (d < n - 1 && c[d] > c[d + 1]) d++;
+    let maxVal = -1, maxPos = -1;
+    for (let i = d; i < n; i++){
+      if (c[i] > maxVal){ maxVal = c[i]; maxPos = i; }
+    }
+    let T0 = maxPos;
+    if (T0 <= 0) return -1;
+    const x1 = c[T0 - 1] || 0, x2 = c[T0], x3 = c[T0 + 1] || 0;
+    const a = (x1 + x3 - 2 * x2) / 2, b = (x3 - x1) / 2;
+    if (a) T0 = T0 - b / (2 * a);
+    return sampleRate / T0;
+  }
+
+  // Note: the harmony voices use a FIXED semitone shift (set once in buildAudioGraph /
+  // whenever "your part" changes) rather than being recomputed from detected pitch —
+  // Tone.PitchShift already tracks whatever frequency comes through it in real time,
+  // so re-setting .pitch continuously only added retuning artifacts without adding
+  // anything. This loop now purely drives the on-screen pitch meter.
+  function startPitchLoop(){
+    const buf = new Float32Array(analyser.fftSize);
+    function loop(){
+      analyser.getFloatTimeDomainData(buf);
+      const freq = autoCorrelate(buf, audioCtx.sampleRate);
+
+      if (freq > 70 && freq < 1100){
+        const { name, cents } = noteName(freq);
+        noteReadout.textContent = name;
+        centsReadout.textContent = (cents > 0 ? "+" : "") + cents + "¢";
+        const clamped = Math.max(-50, Math.min(50, cents));
+        pitchNeedle.style.left = (50 + clamped) + "%";
+        pitchNeedle.style.background = Math.abs(cents) < 12 ? "#7fe0a0" : "#5fd8c4";
+      } else {
+        noteReadout.textContent = "—";
+        centsReadout.textContent = "";
+        pitchNeedle.style.left = "50%";
+        pitchNeedle.style.background = "#5fd8c4";
+      }
+      pitchRAF = requestAnimationFrame(loop);
+    }
+    loop();
+  }
+
+  // ---------- Hand tracking / gesture logic ----------
+  let hands, camera;
+  let showSkeleton = true;
+  let confirmedMode = "dry";
+  let candidateMode = null;
+  let candidateSince = 0;
+  const HOLD_MS = 220;
+
+  function dist(a, b){ return Math.hypot(a.x - b.x, a.y - b.y); }
+
+  function classifyHand(landmarks){
+    const wrist = landmarks[0];
+    const fingers = [
+      { pip: landmarks[6], tip: landmarks[8] },
+      { pip: landmarks[10], tip: landmarks[12] },
+      { pip: landmarks[14], tip: landmarks[16] },
+      { pip: landmarks[18], tip: landmarks[20] },
+    ];
+    let extended = 0;
+    fingers.forEach(f => {
+      if (dist(wrist, f.tip) > dist(wrist, f.pip) * 1.08) extended++;
+    });
+    if (extended >= 3) return "open";
+    if (extended <= 1) return "fist";
+    return "ambiguous";
+  }
+
+  function onResults(results){
+    ctx2d.save();
+    ctx2d.clearRect(0, 0, overlay.width, overlay.height);
+
+    let state = "none"; // "open" | "fist" | "ambiguous" | "none"
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0){
+      const lm = results.multiHandLandmarks[0]; // single-hand control: primary/first detected hand
+      state = classifyHand(lm);
+      if (showSkeleton && window.drawConnectors){
+        window.drawConnectors(ctx2d, lm, window.HAND_CONNECTIONS, { color: state === "open" ? "#e8b34e" : (state === "fist" ? "#5fd8c4" : "#666"), lineWidth: 2 });
+        window.drawLandmarks(ctx2d, lm, { color: "#fff", lineWidth: 1, radius: 2 });
+      }
+    }
+    ctx2d.restore();
+
+    // open -> harmony candidate; fist/none -> dry candidate; ambiguous -> hold last (no candidate)
+    let overall = null;
+    if (state === "open") overall = "harmony";
+    else if (state === "fist" || state === "none") overall = "dry";
+
+    const now = performance.now();
+    if (overall && overall !== confirmedMode){
+      if (overall === candidateMode){
+        if (now - candidateSince >= HOLD_MS){
+          confirmedMode = overall;
+          candidateMode = null;
+          applyMode(confirmedMode);
+        }
+      } else {
+        candidateMode = overall;
+        candidateSince = now;
+      }
+    } else {
+      candidateMode = null;
+    }
+  }
+
+  async function startCamera(){
+    hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.6,
+    });
+    hands.onResults(onResults);
+
+    camera = new Camera(video, {
+      onFrame: async () => { await hands.send({ image: video }); },
+      width: 640,
+      height: 480,
+    });
+    await camera.start();
+
+    overlay.width = video.videoWidth || 640;
+    overlay.height = video.videoHeight || 480;
+    video.addEventListener("loadedmetadata", () => {
+      overlay.width = video.videoWidth || 640;
+      overlay.height = video.videoHeight || 480;
+    });
+  }
+
+  // ---------- Session control ----------
+  startBtn.addEventListener("click", async () => {
+    startBtn.disabled = true;
+    try {
+      if (typeof Hands === "undefined" || typeof Camera === "undefined"){
+        throw new Error("Hand-tracking library didn't load (check your connection and refresh the page).");
+      }
+      if (typeof Tone === "undefined"){
+        throw new Error("Audio library (Tone.js) didn't load (check your connection and refresh the page).");
+      }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+        throw new Error("This browser doesn't support camera/microphone access.");
+      }
+      log("Requesting camera…");
+      placeholder.style.display = "none";
+      await startCamera();
+      log("Camera ready.");
+
+      log("Requesting microphone…");
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
+      log("Microphone ready.");
+
+      buildAudioGraph();
+      await Tone.start();
+
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      micSource.connect(analyser); // analysis only — this tap doesn't feed the output
+
+      confirmedMode = "dry";
+      currentMode = "dry";
+      harmonizingActive = false;
+      modeChip.dataset.mode = "dry";
+      modeLabel.textContent = "Dry — your voice only";
+      renderLegend();
+      startPitchLoop();
+      scheduleClick();
+
+      stopBtn.disabled = false;
+      toggleSkeleton.disabled = false;
+      testBtn.disabled = false;
+      log("Session started. Open your hand for the five-part harmony; close it for just your voice.");
+    } catch (err){
+      const msg = err && err.message ? err.message : String(err);
+      log("Error: " + msg);
+      placeholder.innerHTML = `<div style="color:#e37b6b; font-weight:600;">Couldn't start: ${msg}</div>`;
+      placeholder.style.display = "flex";
+      startBtn.disabled = false;
+    }
+  });
+
+  stopBtn.addEventListener("click", () => {
+    try {
+      if (camera) camera.stop();
+      if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
+      if (micStream) micStream.getTracks().forEach(t => t.stop());
+      if (pitchRAF) cancelAnimationFrame(pitchRAF);
+      clearInterval(clickTimer);
+      pitchShifters.forEach(s => { try { s.dispose(); } catch(e){} });
+      pitchShifters = []; partGains = [];
+      if (audioCtx) audioCtx.close();
+      audioCtx = null;
+    } catch(e){}
+    ctx2d.clearRect(0, 0, overlay.width, overlay.height);
+    placeholder.style.display = "flex";
+    modeChip.dataset.mode = "idle";
+    modeLabel.textContent = "Camera off";
+    noteReadout.textContent = "—";
+    centsReadout.textContent = "";
+    pitchNeedle.style.left = "50%";
+    harmonizingActive = false;
+    renderLegend();
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    toggleSkeleton.disabled = true;
+    testBtn.disabled = true;
+    log("Session stopped.");
+  });
+
+  toggleSkeleton.addEventListener("click", () => {
+    showSkeleton = !showSkeleton;
+    toggleSkeleton.textContent = showSkeleton ? "Hide hand tracking" : "Show hand tracking";
+  });
+
+})();
+</script>
+</body>
+</html>
