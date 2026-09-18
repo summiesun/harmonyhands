@@ -337,7 +337,10 @@
     { pip: 14, tip: 16 },
     { pip: 18, tip: 20 },
   ];
-  const VOICE_ON_GAIN = 0.55;
+  // Pulled back from 0.55: with up to 4 of these summing under the dry voice
+  // (see the limiter note in buildAudioGraph), the old level left almost no
+  // headroom and was a real contributor to digital clipping ("static").
+  const VOICE_ON_GAIN = 0.4;
 
   // Per-voice micro-timing/detune "doubling" trick: real backing-vocal stacks
   // are never phase- or pitch-locked to each other because they're different
@@ -444,6 +447,17 @@
   // the others rather than all 4 toggling together off a single hand state.
   function setVoiceActive(i, active){
     if (harmonyGains[i]) harmonyGains[i].gain.setTargetAtTime(active ? VOICE_ON_GAIN : 0, audioCtx.currentTime, 0.08);
+    // The formant-preserving engine is real DSP work, running continuously as
+    // long as it's marked active — previously all 4 ran full-time regardless
+    // of which fingers were actually up, which is a lot of unnecessary CPU
+    // competing with everything else (camera inference, the other voices) and
+    // a real contributor to audio glitching under load. Pausing a voice's
+    // engine when its finger is down, not just muting it downstream, is the
+    // actual fix for that; only the fallback (Tone.js) engine has no such
+    // concept and just keeps running regardless (it's cheap either way).
+    if (pitchShifters[i] && voiceEngines[i] === "signalsmith"){
+      pitchShifters[i].schedule({ semitones: voiceSemitones(i), formantCompensation: true, formantBaseHz: 0, active });
+    }
     if (legendRows[i]) legendRows[i].classList.toggle("harmonizing", active);
     updateModeChip();
     log(`${FINGER_NAMES[i]} ${active ? "up" : "down"} → ${HARMONY_LABELS[i]} ${active ? "in" : "out"}.`);
@@ -496,14 +510,31 @@
 
     masterGain = audioCtx.createGain();
     masterGain.gain.value = volume.value / 100;
-    masterGain.connect(audioCtx.destination);
+
+    // Safety limiter: your dry voice plus up to 4 harmony voices can sum well
+    // past full scale the moment you sing at any real volume with more than
+    // one finger up — with nothing catching that, it hits hard digital
+    // clipping, which is exactly what "static"/crackling that comes and goes
+    // with how loud you're singing sounds like (as opposed to steady hiss).
+    // A fast peak limiter on the master bus, plus the lower per-voice levels
+    // below, keeps that summed peak from ever actually clipping.
+    const limiter = audioCtx.createDynamicsCompressor();
+    limiter.threshold.value = -6;
+    limiter.knee.value = 0;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.001;
+    limiter.release.value = 0.1;
+    masterGain.connect(limiter);
+    limiter.connect(audioCtx.destination);
 
     // Lead voice: fully untouched, straight through. No "touch of autotune" any
     // more — that was another always-on real-time pitch shifter running the
     // whole session, and cutting it is one less thing competing for CPU/audio
     // buffer headroom (a real cause of choppiness, separate from the harmonies).
+    // Pulled back from full unity (was 1.0) to leave headroom for the harmony
+    // voices summing in underneath it — see the limiter note above.
     dryGain = audioCtx.createGain();
-    dryGain.gain.value = 1.0;
+    dryGain.gain.value = 0.85;
     dryGain.connect(masterGain);
 
     harmonyBed = audioCtx.createGain(); // sum of the 4 harmony voices
@@ -548,7 +579,13 @@
       try {
         const Factory = await loadSignalsmithFactory();
         const node = await Factory(audioCtx);
-        node.schedule({ semitones: voiceSemitones(i), formantCompensation: true, formantBaseHz: 0, active: true });
+        // Starts inactive: no finger is raised yet at session start
+        // (fingerConfirmed resets to all-false), so there's nothing for this
+        // engine to do until setVoiceActive() flips it on for a raised finger.
+        // Leaving this at active:true meant every engine ran full DSP from the
+        // first second of every session regardless of finger state, undercutting
+        // the whole point of the active-gating added in setVoiceActive().
+        node.schedule({ semitones: voiceSemitones(i), formantCompensation: true, formantBaseHz: 0, active: false });
         node.start();
         micSource.connect(node);
         shifter = node;
