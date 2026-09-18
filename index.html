@@ -187,7 +187,7 @@
   <header>
     <div>
       <h1>HarmonyHands</h1>
-      <p>Each of your four fingers controls one harmony voice on its own — raise a finger to bring that voice in, lower it to drop it back out, in any combination. Your thumb is free. Each voice is a fixed interval above or below whatever you're singing — drag its slider to set how far.</p>
+      <p>Each of your four fingers controls one harmony voice on its own — raise a finger to bring that voice in, lower it to drop it back out, in any combination. Your thumb is free. Voices use a formant-preserving pitch shifter so they sound like other voices, not a pitch-bent copy of yours — drag each slider to set how far above or below your own voice it sits.</p>
     </div>
     <div class="badges">
       <span class="badge">prototype</span>
@@ -278,14 +278,23 @@
   </div>
 
   <footer>
-    Hand detection uses MediaPipe Hands and voice harmonization uses Tone.js's real-time pitch shifter — both run
-    entirely in your browser; no audio or video leaves your device. Gesture logic: your index, middle, ring, and
-    pinky fingers each independently control one harmony voice (Harmony A/B/C/D respectively, matching the colors
-    in the panel) — raise any combination of them to bring in exactly those voices; lower a finger and its voice
-    drops back out. Your thumb isn't used. Each harmony voice sits at a fixed semitone offset from your live voice,
-    set by its own slider — drag one down while you sing to hear it move in real time, and use "Test the 4 harmony
-    voices" to preview the current settings on a held tone regardless of your hand. If audio still stutters even
-    with every finger down (no
+    Hand detection uses MediaPipe Hands; voice harmonization uses <a href="https://signalsmith-audio.co.uk/code/stretch/" style="color:inherit;">Signalsmith Stretch</a>, a
+    formant-preserving pitch shifter, with Tone.js's simpler shifter as an automatic fallback if that engine can't
+    load — both run entirely in your browser; no audio or video leaves your device. Formant preservation is what
+    keeps a shifted voice sounding like a voice instead of a chipmunked/robotic copy of yours: naive pitch-shifting
+    drags your vocal-tract resonances up or down along with the pitch, which is most of what reads as "computerized."
+    Each voice also gets a few milliseconds of independent, slowly-wandering delay on top of a tiny detune, the same
+    trick that makes doubled/stacked human backing vocals sound like separate people rather than one voice copied —
+    this part isn't dependent on the shifter and helps either way. None of this fully closes the gap with dedicated
+    hardware harmonizer rigs (the kind behind Imogen Heap's or Ariana Grande's live setups), but it's a real step
+    closer, not just a tuning tweak. Gesture logic: your index, middle, ring, and pinky fingers each independently
+    control one harmony voice (Harmony A/B/C/D respectively, matching the colors in the panel) — raise any
+    combination of them to bring in exactly those voices; lower a finger and its voice drops back out. Your thumb
+    isn't used. Each harmony voice sits at a fixed semitone offset from your live voice, set by its own slider —
+    drag one down while you sing to hear it move in real time, and use "Test the 4 harmony voices" to preview the
+    current settings on a held tone regardless of your hand. The formant-preserving engine is heavier on your CPU
+    than the old shifter, so if audio gets choppier than before, try the "Choir polish" toggle off (if it's on) and
+    close other tabs/apps first. If it still stutters even with every finger down (no
     harmonies), that's almost always outside the app itself — most commonly a Bluetooth headset (AirPods and
     similar) dropping to its low-bandwidth call-quality mode the moment it's also supplying the microphone, or the
     browser tab running low on CPU. Wired headphones/mic, or a wired USB mic, sidestep the Bluetooth issue entirely.
@@ -330,7 +339,34 @@
   ];
   const VOICE_ON_GAIN = 0.55;
 
+  // Per-voice micro-timing/detune "doubling" trick: real backing-vocal stacks
+  // are never phase- or pitch-locked to each other because they're different
+  // people. A few ms of independent, slowly-wandering delay per voice (plus
+  // the fixed cents detune above) fakes that same decorrelation cheaply,
+  // regardless of which pitch-shift engine is doing the actual shifting.
+  const VOICE_BASE_DELAY_MS = [6, 9, 12, 15];
+  const VOICE_WOBBLE_DEPTH_MS = 2.5;
+  const VOICE_WOBBLE_HZ = [0.13, 0.19, 0.24, 0.29]; // decorrelated, all sub-audio
+
   let voiceOffsets = HARMONY_DEFAULTS.slice();
+  let voiceEngines = []; // "signalsmith" | "tonejs", index-aligned with voiceOffsets
+
+  // Signalsmith Stretch: a real formant-preserving pitch shifter (WASM +
+  // AudioWorklet), a big step up from Tone.PitchShift's simple granular
+  // shifter, which moves the vocal-tract formants along with the pitch —
+  // that's the main thing that reads as "robotic"/"chipmunked" rather than
+  // like a second natural voice. Loaded once and cached; each harmony voice
+  // gets its own instance. If it fails to load (offline, blocked, older
+  // browser) each voice falls back to the old Tone.PitchShift path instead of
+  // breaking the app — see buildAudioGraph.
+  const SIGNALSMITH_URL = "https://cdn.jsdelivr.net/npm/signalsmith-stretch@1.3.2/SignalsmithStretch.mjs";
+  let signalsmithFactoryPromise = null;
+  function loadSignalsmithFactory(){
+    if (!signalsmithFactoryPromise){
+      signalsmithFactoryPromise = import(SIGNALSMITH_URL).then(m => m.default);
+    }
+    return signalsmithFactoryPromise;
+  }
 
   function midiToFreq(midi){ return 440 * Math.pow(2, (midi - 69) / 12); }
   const NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
@@ -428,21 +464,33 @@
   let pitchShifters = []; // one per harmony voice, index-aligned with voiceOffsets
   let harmonyGains = [];
   let harmonyFilters = []; // { lp, hp } per voice
+  let harmonyDelays = []; // { delay, lfo, lfoGain } per voice — the doubling wobble
   let clickOn = false;
   let clickTimer = null;
   let micStream = null, micSource = null, analyser = null, pitchRAF = null;
   let lastMidi = 60; // latest detected pitch, just used to pick a reference tone for the test button
 
+  function voiceSemitones(i){
+    return voiceOffsets[i] + HARMONY_DETUNE_CENTS[i] / 100;
+  }
+
   // Sets one harmony voice's pitch shift directly from its slider value — no
   // note tracking or key guessing involved, so moving a slider (or starting a
-  // session with new defaults) takes effect immediately and stays put.
+  // session with new defaults) takes effect immediately and stays put. The
+  // two engines have different APIs, so this branches on which one that
+  // voice actually got (see buildAudioGraph).
   function applyVoiceOffset(i){
     const shifter = pitchShifters[i];
     if (!shifter) return;
-    shifter.pitch = voiceOffsets[i] + HARMONY_DETUNE_CENTS[i] / 100;
+    const semis = voiceSemitones(i);
+    if (voiceEngines[i] === "signalsmith"){
+      shifter.schedule({ semitones: semis, formantCompensation: true, formantBaseHz: 0, active: true });
+    } else {
+      shifter.pitch = semis;
+    }
   }
 
-  function buildAudioGraph(){
+  async function buildAudioGraph(){
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     Tone.setContext(audioCtx);
 
@@ -489,51 +537,99 @@
     pitchShifters = [];
     harmonyGains = [];
     harmonyFilters = [];
+    harmonyDelays = [];
+    voiceEngines = [];
+    let signalsmithCount = 0;
     for (let i = 0; i < voiceOffsets.length; i++){
+      let shifter = null, engine = null;
+      // Try the formant-preserving engine first. It's a real AudioWorkletNode
+      // (native), so it connects directly with plain .connect() — no Tone
+      // bridge needed on either side of it.
       try {
-        const shifter = new Tone.PitchShift({
-          pitch: voiceOffsets[i] + HARMONY_DETUNE_CENTS[i] / 100,
-          windowSize: 0.15, // smoother on sustained sung notes than the 0.1
-                             // default; the shift value is now fixed per voice
-                             // (only changes when you move its slider) so there's
-                             // no need for fast transient tracking either.
-          feedback: 0,       // any feedback here adds a metallic, comb-filtered
-                              // resonance — the "robot" half of "monster-robot".
-        });
-        // IMPORTANT: a native AudioNode's own .connect() only accepts a native
-        // AudioNode/AudioParam — passing shifter.input directly throws
-        // "Overload resolution failed" because it's a Tone.js-wrapped object,
-        // not a raw AudioNode. Tone.connect() is the documented bridge for
-        // wiring native Web Audio nodes into/out of Tone.js nodes.
-        Tone.connect(micSource, shifter);
-
-        // Real-time pitch shifting throws off harsh, slightly metallic upper
-        // harmonics (worse the further the shift), and downward shifts thicken
-        // the low end into a "growl". A gentle high-cut and low-cut per voice
-        // files off both without dulling the voice.
-        const lp = new Tone.Filter({ type: "lowpass", frequency: 8500, Q: 0.3 });
-        const hp = new Tone.Filter({ type: "highpass", frequency: 140, Q: 0.3 });
-        shifter.chain(lp, hp); // Tone node -> Tone node: fine to call directly
-
-        const g = audioCtx.createGain();
-        // Starts silent — this is the per-voice gate a raised finger opens.
-        // VOICE_ON_GAIN (0.55) is deliberately under the lead's volume: four
-        // harmony voices summed at full gain each read louder and more
-        // "walled" than the lead you're actually singing — sitting them a
-        // little under it is a normal backing-vocal mixing move.
-        g.gain.value = 0;
-        hp.connect(g); // Tone node -> native node: fine to call directly
-        g.connect(harmonyBed);
-        pitchShifters.push(shifter);
-        harmonyGains.push(g);
-        harmonyFilters.push({ lp, hp });
+        const Factory = await loadSignalsmithFactory();
+        const node = await Factory(audioCtx);
+        node.schedule({ semitones: voiceSemitones(i), formantCompensation: true, formantBaseHz: 0, active: true });
+        node.start();
+        micSource.connect(node);
+        shifter = node;
+        engine = "signalsmith";
+        signalsmithCount++;
       } catch (e){
-        log(`Harmony voice "${HARMONY_LABELS[i]}" failed to set up: ${e && e.message ? e.message : e}`);
-        pitchShifters.push(null);
-        harmonyGains.push(null);
-        harmonyFilters.push(null);
+        log(`Formant-corrected engine unavailable for "${HARMONY_LABELS[i]}" (${e && e.message ? e.message : e}) — using fallback shifter.`);
       }
+      if (!shifter){
+        try {
+          const ts = new Tone.PitchShift({
+            pitch: voiceSemitones(i),
+            windowSize: 0.15,
+            feedback: 0,
+          });
+          // Native -> Tone needs the Tone.connect() bridge (see the comment
+          // by the choir-polish bus above for why plain .connect() throws).
+          Tone.connect(micSource, ts);
+          shifter = ts;
+          engine = "tonejs";
+        } catch (e){
+          log(`Harmony voice "${HARMONY_LABELS[i]}" failed to set up: ${e && e.message ? e.message : e}`);
+        }
+      }
+
+      if (!shifter){
+        pitchShifters.push(null); harmonyGains.push(null); harmonyFilters.push(null); harmonyDelays.push(null); voiceEngines.push(null);
+        continue;
+      }
+
+      // Real-time pitch shifting throws off harsh, slightly metallic upper
+      // harmonics (worse the further the shift), and downward shifts thicken
+      // the low end into a "growl". A gentle high-cut and low-cut per voice
+      // files off both without dulling the voice. Signalsmith's own formant
+      // compensation makes this less load-bearing than it used to be, but it
+      // still helps, so it stays for both engines.
+      const lp = new Tone.Filter({ type: "lowpass", frequency: 8500, Q: 0.3 });
+      const hp = new Tone.Filter({ type: "highpass", frequency: 140, Q: 0.3 });
+      if (engine === "signalsmith"){
+        Tone.connect(shifter, lp); // native -> Tone: needs the bridge
+        lp.connect(hp);            // Tone -> Tone: fine directly
+      } else {
+        shifter.chain(lp, hp);     // Tone -> Tone: fine directly
+      }
+
+      // The doubling wobble: a few ms of delay per voice, slowly modulated by
+      // its own (decorrelated-rate) LFO, on top of the fixed cents detune.
+      // Cheap either way, and it's what actually sells "several singers"
+      // rather than "one voice, copied" — independent of shifter quality.
+      const delay = audioCtx.createDelay(0.05);
+      delay.delayTime.value = VOICE_BASE_DELAY_MS[i] / 1000;
+      const lfo = audioCtx.createOscillator();
+      lfo.frequency.value = VOICE_WOBBLE_HZ[i];
+      const lfoGain = audioCtx.createGain();
+      lfoGain.gain.value = VOICE_WOBBLE_DEPTH_MS / 1000;
+      lfo.connect(lfoGain);
+      lfoGain.connect(delay.delayTime); // AudioParam modulation: adds on top of delay.delayTime.value
+      lfo.start();
+      hp.connect(delay); // Tone -> native: fine directly
+
+      const g = audioCtx.createGain();
+      // Starts silent — this is the per-voice gate a raised finger opens.
+      // VOICE_ON_GAIN (0.55) is deliberately under the lead's volume: four
+      // harmony voices summed at full gain each read louder and more
+      // "walled" than the lead you're actually singing — sitting them a
+      // little under it is a normal backing-vocal mixing move.
+      g.gain.value = 0;
+      delay.connect(g);
+      g.connect(harmonyBed);
+
+      pitchShifters.push(shifter);
+      harmonyGains.push(g);
+      harmonyFilters.push({ lp, hp });
+      harmonyDelays.push({ delay, lfo, lfoGain });
+      voiceEngines.push(engine);
     }
+    log(signalsmithCount === voiceOffsets.length
+      ? "Harmony engine: formant-corrected (Signalsmith Stretch) on all 4 voices."
+      : signalsmithCount > 0
+        ? `Harmony engine: formant-corrected on ${signalsmithCount}/${voiceOffsets.length} voices, fallback shifter on the rest.`
+        : "Harmony engine: fallback shifter (formant-corrected engine didn't load).");
   }
 
   // Plays a short reference tone through each of the 4 harmony voices in turn,
@@ -559,12 +655,14 @@
         osc.frequency.value = midiToFreq(refMidi);
         g.gain.value = 0;
         osc.connect(g);
-        Tone.connect(g, s);
+        if (voiceEngines[i] === "signalsmith") g.connect(s); // native -> native
+        else Tone.connect(g, s); // native -> Tone: needs the bridge
         g.gain.setTargetAtTime(0.6, now, 0.01);
         g.gain.setTargetAtTime(0, now + 0.35, 0.05);
         osc.start(now);
         osc.stop(now + 0.6);
-        log(`${HARMONY_LABELS[i]}: ${s.pitch > 0 ? "+" : ""}${s.pitch.toFixed(1)} semitones`);
+        const semis = voiceSemitones(i);
+        log(`${HARMONY_LABELS[i]}: ${semis > 0 ? "+" : ""}${semis.toFixed(2)} semitones`);
         if (idx === testVoices.length - 1){
           setTimeout(() => {
             harmonyGains.forEach((gn, vi) => {
@@ -809,7 +907,8 @@
       });
       log("Microphone ready.");
 
-      buildAudioGraph();
+      log("Loading harmony engine…");
+      await buildAudioGraph();
       await Tone.start();
 
       analyser = audioCtx.createAnalyser();
@@ -845,11 +944,18 @@
       if (micStream) micStream.getTracks().forEach(t => t.stop());
       if (pitchRAF) cancelAnimationFrame(pitchRAF);
       clearInterval(clickTimer);
-      pitchShifters.forEach(s => { if (!s) return; try { s.dispose(); } catch(e){} });
+      pitchShifters.forEach(s => {
+        if (!s) return;
+        // Tone.PitchShift instances have .dispose(); the native Signalsmith
+        // AudioWorkletNodes don't, but closing audioCtx below tears down
+        // every worklet node anyway — .disconnect() here is just tidy.
+        try { if (typeof s.dispose === "function") s.dispose(); else s.disconnect(); } catch(e){}
+      });
       harmonyFilters.forEach(f => { if (!f) return; try { f.lp.dispose(); } catch(e){} try { f.hp.dispose(); } catch(e){} });
+      harmonyDelays.forEach(d => { if (!d) return; try { d.lfo.stop(); } catch(e){} try { d.lfo.disconnect(); } catch(e){} try { d.lfoGain.disconnect(); } catch(e){} try { d.delay.disconnect(); } catch(e){} });
       try { if (harmonyChorus) harmonyChorus.dispose(); } catch(e){}
       try { if (harmonyReverb) harmonyReverb.dispose(); } catch(e){}
-      pitchShifters = []; harmonyGains = []; harmonyFilters = [];
+      pitchShifters = []; harmonyGains = []; harmonyFilters = []; harmonyDelays = []; voiceEngines = [];
       harmonyChorus = null; harmonyReverb = null;
       if (audioCtx) audioCtx.close();
       audioCtx = null;
